@@ -569,7 +569,7 @@ async function vistaInicio(el) {
     <div class="r"><b>${fmtP(i.ult_precio, i.unidad)}</b>${chipVar(i.var_ant, { titulo: 'Contra la compra anterior al mismo proveedor' })}</div></li>`;
   el.innerHTML = `<div class="encabezado"><div><h1>${saludo}, ${esc(String(S.user.nombre).split(' ')[0])}</h1><p>Precios de las materias primas, leídos de las facturas de proveedores.</p></div>
       ${puede('editor') ? `<div class="acciones"><button class="btn" id="b-sync">${ICO.refresh}Sincronizar ahora</button></div>` : ''}</div>
-    ${cola ? `<div class="panel panel-pad progreso-lectura"><div class="pl-t"><b>${ICO.sparkle}Leyendo el historial de facturas</b><span class="muted small">${leidas} de ${total} leídas · ${cola} en cola · se leen solas de a ${'unas pocas'} cada 10 minutos</span></div>
+    ${cola ? `<div class="panel panel-pad progreso-lectura"><div class="pl-t"><b>${ICO.sparkle}Leyendo el historial de facturas</b><span class="muted small">${leidas} de ${total} leídas · ${cola} en cola · se leen solas, más rápido cuando Google no está cargado</span></div>
       <div class="pl-barra"><span style="width:${total ? Math.round(leidas / total * 100) : 0}%"></span></div></div>` : ''}
     <div class="kpis">
       <a class="kpi ${t.alertas_sin_ver ? 'alerta' : ''}" href="#/alertas"><div class="et">Alertas sin ver</div><div class="val">${t.alertas_sin_ver}</div><div class="sub">${t.alertas_por_tipo?.suba ? `${t.alertas_por_tipo.suba} suba(s)` : 'Sin subas nuevas'}${t.alertas_por_tipo?.mas_caro ? ` · ${t.alertas_por_tipo.mas_caro} más caro(s)` : ''}</div></a>
@@ -1203,7 +1203,7 @@ const CFG_UI = [
     { k: 'dias_promedio', tipo: 'numero', suf: 'días', t: 'Período del promedio', d: 'Ventana del promedio ponderado y de la comparación entre proveedores.' },
   ] },
   { t: 'Lectura de facturas', ico: 'sparkle', items: [
-    { k: 'lecturas_por_corrida', tipo: 'numero', suf: 'facturas', t: 'Facturas por corrida', d: 'Cuántas facturas se leen con Gemini cada 10 minutos (máximo 12).' },
+    { k: 'lecturas_por_corrida', tipo: 'numero', suf: 'facturas', t: 'Facturas por corrida', d: 'Máximo de facturas que se leen en cada corrida (cada 10 minutos; si Google corta, la app espera y sigue). Hasta 60.' },
     { k: 'tolerancia_cierre_pct', tipo: 'numero', step: 0.5, suf: '%', t: 'Tolerancia del control', d: 'Diferencia aceptada entre la suma de los renglones y el neto de la factura antes de marcarla como “No cierra”.' },
     { k: 'leer_historial', tipo: 'switch', t: 'Leer el historial', d: 'En la primera sincronización trae también las facturas que ya estaban en la app de facturas. Después no tiene efecto.', si: 'Sí', no: 'Solo nuevas' },
   ] },
