@@ -850,3 +850,13 @@ tr.fila-desc td { background: var(--pos-bg); }
 .combo-lista li.on { background: var(--accent-soft); }
 .combo-lista li.sel span { font-weight: 700; }
 .combo-lista li.vacio-combo { color: var(--muted); cursor: default; font-size: 13px; }
+
+/* Para vincular: selección de varias descripciones */
+.tabla-vinc .col-sel { width: 1%; padding-right: 0; text-align: center; }
+.tabla-vinc .col-sel input { width: 18px; height: 18px; margin: 0; cursor: pointer; vertical-align: middle; }
+.tabla-vinc tr.sel td { background: var(--accent-soft); }
+.tabla-vinc tr.sel:hover td { background: var(--accent-soft); }
+.barra-sel { position: sticky; top: calc(var(--top-h) + 8px); z-index: 20; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; margin: 0 0 10px; background: var(--accent-soft); color: var(--text); border: 1px solid var(--accent); border-radius: var(--r-md); box-shadow: var(--sh-1); }
+.barra-sel[hidden] { display: none; }
+.barra-sel span { font-weight: 600; margin-right: auto; }
+.barra-sel .btn { margin: 0; }
