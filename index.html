@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Costos de insumos · Lucciano's</title>
+  <meta name="description" content="Lucciano's — seguimiento de precios de materias primas leídos de las facturas de proveedores">
+  <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111213" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Costos">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <script>
+    // Tema guardado (claro/oscuro) antes de pintar, para que no parpadee
+    try { var t = localStorage.getItem('costos_tema'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=1.0.0">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
+  <script>
+    // URL del Worker
+    window.COSTOS_API = 'https://costos-api.lucciano-viaticos.workers.dev';
+  </script>
+  <script src="app.js?v=1.0.0" defer></script>
+</head>
+<body>
+  <div id="app" aria-live="polite"></div>
+  <div id="toast" role="status"></div>
+  <div id="modal" class="modal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <button class="modal-cerrar" type="button" aria-label="Cerrar">×</button>
+      <div class="modal-cuerpo"></div>
+    </div>
+  </div>
+</body>
+</html>
