@@ -96,19 +96,56 @@ function factorDirecto(uFact, base) {
   const T = { kg: { kg: 1, gramo: 0.001, tonelada: 1000 }, l: { litro: 1, ml: 0.001 }, un: { unidad: 1, docena: 12 } };
   return (T[base] || {})[n] ?? null;
 }
-// "1 caja = 15 kg" / "se compra por kg"
-function textoEquivale(uFact, factor, base) {
-  if (!factor) return 'falta indicar cuánto trae';
+// Cuando la factura dice "unidad" pero el renglón es un envase ("BULTOX100U"), se nombra el envase de la descripción
+function envaseDe(desc) {
+  const t = normQ(desc);
+  const M = [[/bulto/, 'bulto'], [/caj|cja\b/, 'caja'], [/bolsa/, 'bolsa'], [/balde/, 'balde'], [/bidon/, 'bidón'], [/pack|paq/, 'paquete'], [/tambor/, 'tambor'], [/display/, 'display']];
+  for (const [rx, n] of M) if (rx.test(t)) return n;
+  return 'envase';
+}
+// Unidad en la que se facturó, para mostrar: la de la factura, o el envase si dice "unidad" pero trae varias
+function unidadMostrar(uFact, factor, base, desc) {
   const n = unidadFact(uFact);
+  if (n === 'unidad' && Number(factor) > 1 && desc) return envaseDe(desc);
+  return n;
+}
+// "1 caja = 15 kg" / "se compra por kg"
+function textoEquivale(uFact, factor, base, desc) {
+  if (!factor) return 'falta indicar cuánto trae';
+  const n = unidadMostrar(uFact, factor, base, desc);
   if (factorDirecto(uFact, base) === Number(factor) && Number(factor) === 1) return `se compra por ${UNI_C[base] === 'u.' ? 'unidad' : UNI_C[base]}`;
   return `1 ${n} = ${fmtCant.format(factor)} ${UNI_C[base]}`;
 }
-// Factor sugerido para vincular: el directo por unidad, o lo que propuso la IA si está en la misma unidad base
+// Contenido declarado en la descripción: "BULTOX100U" → 100 u. · "CAJ X 15 KG" → 15 kg · "X 500 GR" → 0,5 kg · "X 5 LT" → 5 l
+function contenidoEnDescripcion(desc, base) {
+  const t = normQ(desc).toUpperCase();
+  const n = (x) => Number(String(x).replace(',', '.'));
+  let m;
+  if (base === 'un') {
+    if ((m = t.match(/X\s*(\d+)\s*(?:U|UN|UNI|UNID|UNIDADES|UDS?|PZAS?|PIEZAS?)\b/))) return n(m[1]);
+    if ((m = t.match(/(?:BULTO|CAJA|CAJ|CJA|PACK|PAQ|BOLSA)\s*X?\s*(\d+)\b(?!\s*(?:KG|GR|G|LT|L|ML|CC)\b)/))) return n(m[1]);
+  }
+  if (base === 'kg') {
+    if ((m = t.match(/X\s*(\d+(?:[.,]\d+)?)\s*(?:KG|KGS|K|KILOS?)\b/))) return n(m[1]);
+    if ((m = t.match(/X\s*(\d+(?:[.,]\d+)?)\s*(?:GR|GRS|G)\b/))) return n(m[1]) / 1000;
+    if ((m = t.match(/(\d+(?:[.,]\d+)?)\s*(?:KG|KGS)\b/))) return n(m[1]);
+  }
+  if (base === 'l') {
+    if ((m = t.match(/X?\s*(\d+(?:[.,]\d+)?)\s*(?:LT|LTS|L|LITROS?)\b/))) return n(m[1]);
+    if ((m = t.match(/X\s*(\d+(?:[.,]\d+)?)\s*(?:ML|CC)\b/))) return n(m[1]) / 1000;
+  }
+  return null;
+}
+// Factor sugerido para vincular. Si la factura dice explícitamente kg, litro, gramo, etc. → conversión directa.
+// Si dice "unidad" (genérico) o un envase (caja, bulto, bolsa…) → lo que trae según la descripción o según la IA.
 function factorSugerido(g, base) {
   const d = factorDirecto(g.unidad, base);
-  if (d) return d;
+  const generica = ['unidad'].includes(unidadFact(g.unidad));
+  if (d && !generica) return d;
+  const enDesc = contenidoEnDescripcion(g.descripcion, base);
+  if (enDesc && enDesc > 0) return enDesc;
   if (g.contenido && (!g.unidad_base || g.unidad_base === base)) return g.contenido;
-  return null;
+  return d;
 }
 // Precio comparable: $ por kg / litro / unidad
 const precioComparable = (unitArs, factor) => unitArs && factor ? unitArs / factor : null;
@@ -722,13 +759,13 @@ async function vistaInsumo(el, id) {
         <td class="mono">${fmtF(r.fecha)}</td><td>${esc(r.proveedor || '')}<small class="sub-celda"><a href="#" data-fac="${r.factura_id}">${esc(TIPOS[r.tipo] || '')} ${nroCbte(r)}</a></small></td>
         <td class="desc-fac">${esc(r.descripcion)}</td>
         <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(unidadFact(r.unidad))}</small></td>
-        <td class="small">${esc(textoEquivale(r.unidad, r.factor, u))}</td>
+        <td class="small">${esc(textoEquivale(r.unidad, r.factor, u, r.descripcion))}</td>
         <td class="num">${r.moneda && r.moneda !== 'PES' ? esc(r.moneda) + ' ' : ''}${$$m(r.precio_unitario)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}${r.desc_pct ? `<small class="sub-celda txt-pos">desc. general ${dec(r.desc_pct)} %</small>` : ''}</td>
         <td class="num"><b>${r.ignorado ? '<span class="muted">No cuenta</span>' : fmtP(r.precio_base, u)}</b></td>
         <td>${puede('editor') ? `<button class="btn btn-chico" data-ren="${r.id}" title="Corregir">${ICO.pencil}</button>` : ''}</td></tr>`).join('')
         : '<tr><td colspan="8" class="vacio">Sin compras.</td></tr>'}</tbody></table></div></div>
     ${d.vinculos.length ? `<div class="panel"><div class="panel-titulo"><h2>Descripciones vinculadas</h2></div><div class="tabla-wrap"><table><thead><tr><th>Proveedor</th><th>Descripción</th><th>Equivale</th><th class="num">Compras</th></tr></thead><tbody>
-      ${d.vinculos.map(v => `<tr><td>${esc(v.proveedor || fmtCuit(v.cuit))}</td><td class="desc-fac">${esc(v.descripcion || v.clave)}</td><td class="small">${v.factor ? esc(textoEquivale(d.renglones.find(r => r.cuit === v.cuit)?.unidad, v.factor, u)) : '—'}</td><td class="num">${v.usos}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
+      ${d.vinculos.map(v => `<tr><td>${esc(v.proveedor || fmtCuit(v.cuit))}</td><td class="desc-fac">${esc(v.descripcion || v.clave)}</td><td class="small">${v.factor ? esc(textoEquivale(d.renglones.find(r => r.cuit === v.cuit)?.unidad, v.factor, u, v.descripcion)) : '—'}</td><td class="num">${v.usos}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
 
   graficoPrecios($('#graf'), $('#leyenda'), d.compras, u);
   $$('[data-fac]', el).forEach(a => a.onclick = (e) => { e.preventDefault(); irFactura(a.dataset.fac); });
@@ -809,8 +846,8 @@ async function vistaVincular(el) {
       return `<tr class="click fila-vinc" data-fac="${g.factura_id}" title="Tocá para ver la factura">
         <td><div class="vp-desc">${esc(g.descripcion)}</div>
           <div class="vp-meta">${g.codigo ? `Cód. ${esc(g.codigo)} · ` : ''}${g.n} compra${g.n > 1 ? 's' : ''} · última ${fmtF(g.ultima_fecha)} · <a href="#/factura/${g.factura_id}" data-irfac="${g.factura_id}">ver factura</a></div></td>
-        <td class="num"><b>${g.moneda && g.moneda !== 'PES' ? esc(g.moneda) + ' ' : ''}${$$m(g.precio_unitario)}</b><div class="vp-meta">por ${esc(unidadFact(g.unidad))}</div></td>
-        <td>${s ? `<div class="vp-ins">${esc(s.nombre)}${s.nuevo ? '<span class="vp-nuevo">nuevo</span>' : ''}</div><div class="vp-meta">${esc(textoEquivale(g.unidad, s.factor, s.u))}</div>` : '<span class="vp-meta">Sin sugerencia</span>'}</td>
+        <td class="num"><b>${g.moneda && g.moneda !== 'PES' ? esc(g.moneda) + ' ' : ''}${$$m(g.precio_unitario)}</b><div class="vp-meta">por ${esc(s ? unidadMostrar(g.unidad, s.factor, s.u, g.descripcion) : unidadFact(g.unidad))}</div></td>
+        <td>${s ? `<div class="vp-ins">${esc(s.nombre)}${s.nuevo ? '<span class="vp-nuevo">nuevo</span>' : ''}</div><div class="vp-meta">${esc(textoEquivale(g.unidad, s.factor, s.u, g.descripcion))}</div>` : '<span class="vp-meta">Sin sugerencia</span>'}</td>
         <td class="num">${pc ? `<b>${fmtP(pc, s.u)}</b>` : '<span class="vp-meta">—</span>'}</td>
         <td class="acc-vinc"><div class="acc-in">${puede('editor') ? `${s && s.factor ? `<button class="btn btn-acento btn-chico" data-ok="${k}">${ICO.check}Confirmar</button>` : ''}<button class="btn btn-chico" data-v="${k}">${s && s.factor ? 'Cambiar' : 'Vincular'}</button><button class="ibtn ib-x" data-ign="${k}" title="No es insumo (flete, servicio, descuento…)" aria-label="No es insumo">${ICO.x}</button>` : ''}</div></td></tr>`;
     };
@@ -841,13 +878,13 @@ function modalVincular(g, insumos, alTerminar) {
   const rubros = [...new Set([...RUBROS_BASE, ...(S.rubros || [])])];
   const unit = g.ult_unit_ars || (g.cantidad ? g.importe_ars / g.cantidad : null);   // $ por unidad facturada de la última compra (en pesos)
   modal(`<h2>Vincular descripción</h2>
-    <p class="muted" style="margin-bottom:14px"><b>${esc(g.proveedor)}</b><br><span class="desc-fac">${esc(g.descripcion)}</span><br>${g.n} compra(s) · ${$$m(g.precio_unitario)} por ${esc(unidadFact(g.unidad))}${g.factura_id ? ` · <a href="#/factura/${g.factura_id}" data-irfac="${g.factura_id}">ver factura</a>` : ''}</p>
+    <p class="muted" style="margin-bottom:14px"><b>${esc(g.proveedor)}</b><br><span class="desc-fac">${esc(g.descripcion)}</span><br>${g.n} compra(s) · ${$$m(g.precio_unitario)} por ${esc(unidadMostrar(g.unidad, factorSugerido(g, sugIns?.unidad || g.unidad_base || 'kg'), null, g.descripcion))}${g.factura_id ? ` · <a href="#/factura/${g.factura_id}" data-irfac="${g.factura_id}">ver factura</a>` : ''}</p>
     <div class="seg" id="v-modo"><button type="button" data-m="existente" class="${sugIns || !g.nombre_sugerido ? 'on' : ''}">Insumo existente</button><button type="button" data-m="nuevo" class="${!sugIns && g.nombre_sugerido ? 'on' : ''}">Insumo nuevo</button></div>
     <div id="v-exist" class="campo"><label>Insumo</label><select id="v-ins"><option value="">Elegí…</option>${insumos.map(i => `<option value="${i.id}" data-u="${i.unidad}" ${sugIns?.id === i.id ? 'selected' : ''}>${esc(i.nombre)} (${esc(UNI_C[i.unidad])})</option>`).join('')}</select></div>
     <div id="v-nuevo" class="hidden"><div class="campo"><label>Nombre del insumo</label><input id="v-nom" value="${esc(g.nombre_sugerido || '')}" placeholder="Genérico, sin marca"></div>
       <div class="fila2"><div class="campo"><label>Rubro</label><input id="v-rub" list="dl-rub2" placeholder="Lácteos, Frutas…"><datalist id="dl-rub2">${rubros.map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>
       <div class="campo"><label>Se mide por</label><div class="seg" id="v-u">${Object.entries(UNI).map(([k, v]) => `<button type="button" data-u="${k}" class="${(g.unidad_base || 'kg') === k ? 'on' : ''}">${v}</button>`).join('')}</div></div></div></div>
-    <div class="campo" id="v-campo-fac"><label>¿Cuánto trae cada ${esc(unidadFact(g.unidad))}?</label><div class="fila-eq"><span class="muted">1 ${esc(unidadFact(g.unidad))} =</span><input id="v-fac" type="number" min="0" step="any" value="${esc(factorSugerido(g, sugIns?.unidad || g.unidad_base || 'kg') ?? '')}" style="max-width:140px"><span class="muted" id="v-ul"></span></div>
+    <div class="campo" id="v-campo-fac"><label>¿Cuánto trae cada ${esc(unidadMostrar(g.unidad, 2, null, g.descripcion))}?</label><div class="fila-eq"><span class="muted">1 ${esc(unidadMostrar(g.unidad, 2, null, g.descripcion))} =</span><input id="v-fac" type="number" min="0" step="any" value="${esc(factorSugerido(g, sugIns?.unidad || g.unidad_base || 'kg') ?? '')}" style="max-width:140px"><span class="muted" id="v-ul"></span></div>
       <div class="ayuda" id="v-prev"></div></div>
     <div class="acciones" style="margin-top:6px"><button class="btn btn-negro" id="v-ok">${ICO.link}Vincular</button></div>`, {
     alMontar: (m, cerrar) => {
@@ -859,15 +896,16 @@ function modalVincular(g, insumos, alTerminar) {
         $('#v-ul', m).textContent = UNI_C[unidad()];
         // Si se compra directamente en la unidad del insumo (kg por kg), no hay nada que convertir: se oculta la pregunta
         const directo = factorDirecto(g.unidad, unidad()) === 1;
-        $('#v-campo-fac label', m).textContent = directo ? `Se compra por ${UNI[unidad()]}: no hace falta convertir` : `¿Cuánto trae cada ${unidadFact(g.unidad)}?`;
-        $('#v-campo-fac .fila-eq', m).classList.toggle('hidden', directo);
+        const directo2 = directo && !contenidoEnDescripcion(g.descripcion, unidad());
+        $('#v-campo-fac label', m).textContent = directo2 ? `Se compra por ${UNI[unidad()]}: no hace falta convertir` : `¿Cuánto trae cada ${unidadMostrar(g.unidad, 2, null, g.descripcion)}?`;
+        $('#v-campo-fac .fila-eq', m).classList.toggle('hidden', directo2);
         const f = Number($('#v-fac', m).value);
         $('#v-prev', m).innerHTML = f > 0 && unit ? `Precio comparable: <b>${$$m(unit / f)}</b> por ${esc(UNI[unidad()])} (neto, sin IVA). Así se compara con cualquier otro proveedor, venga en la presentación que venga.` : 'Ej: bolsa × 25 kg → 25 · bidón de 5 litros → 5 · si ya se factura por kg → 1.';
       };
       $$('#v-modo button', m).forEach(b => b.onclick = () => { modo = b.dataset.m; $$('#v-modo button', m).forEach(x => x.classList.toggle('on', x === b)); prev(); });
       $$('#v-u button', m).forEach(b => b.onclick = () => { uNuevo = b.dataset.u; $$('#v-u button', m).forEach(x => x.classList.toggle('on', x === b)); prev(); });
       // Al cambiar de insumo (o de unidad del nuevo), si la unidad facturada es directa se completa sola
-      const reFactor = () => { const d = factorDirecto(g.unidad, unidad()); if (d) $('#v-fac', m).value = d; else if (g.unidad_base && g.unidad_base !== unidad()) $('#v-fac', m).value = ''; else if (g.contenido) $('#v-fac', m).value = g.contenido; prev(); };
+      const reFactor = () => { $('#v-fac', m).value = factorSugerido({ ...g, unidad_base: g.unidad_base === unidad() ? g.unidad_base : null, contenido: g.unidad_base === unidad() ? g.contenido : null }, unidad()) ?? ''; prev(); };
       $('#v-ins', m).onchange = reFactor; $('#v-fac', m).oninput = prev;
       $$('#v-u button', m).forEach(b => b.addEventListener('click', reFactor));
       $$('[data-irfac]', m).forEach(a => a.onclick = (e) => { e.preventDefault(); cerrar(); irFactura(a.dataset.irfac); });
@@ -945,7 +983,7 @@ async function vistaFactura(el, id) {
         <div class="tabla-wrap"><table class="sin-orden tabla-ren"><thead><tr><th>Descripción</th><th class="num">Cantidad</th><th class="num">Precio unit.</th><th class="num">Importe</th></tr></thead><tbody>
         ${prods.length ? prods.map(r => `<tr class="${r.ignorado ? 'inactivo' : ''}">
           <td><span class="desc-fac">${esc(r.descripcion)}</span>${r.codigo ? `<small class="sub-celda mono">Cód. ${esc(r.codigo)}</small>` : ''}
-            <small class="sub-celda">${r.insumo_id ? `<a href="#/insumo/${r.insumo_id}">${esc(r.insumo)}</a> · ${esc(textoEquivale(r.unidad, r.factor, r.insumo_unidad))} · <b>${fmtP(r.precio_base, r.insumo_unidad)}</b>` : r.ignorado ? 'No es insumo' : `Sin vincular${puede('editor') ? ` · <button class="btn-link" data-vinc-ren="${r.id}">Vincular ahora</button>` : ''}`}</small></td>
+            <small class="sub-celda">${r.insumo_id ? `<a href="#/insumo/${r.insumo_id}">${esc(r.insumo)}</a> · ${esc(textoEquivale(r.unidad, r.factor, r.insumo_unidad, r.descripcion))} · <b>${fmtP(r.precio_base, r.insumo_unidad)}</b>` : r.ignorado ? 'No es insumo' : `Sin vincular${puede('editor') ? ` · <button class="btn-link" data-vinc-ren="${r.id}">Vincular ahora</button>` : ''}`}</small></td>
           <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(unidadFact(r.unidad))}</small></td>
           <td class="num">${$$m(r.precio_unitario)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}</td>
           <td class="num">${$$m(r.importe)}${r.desc_pct ? `<small class="sub-celda txt-pos">− ${dec(r.desc_pct)} % → ${$$m(r.importe * (1 - r.desc_pct / 100))}</small>` : ''}</td></tr>`).join('')
