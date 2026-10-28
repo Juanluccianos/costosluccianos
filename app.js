@@ -169,7 +169,11 @@ function modal(html, { ancho = false, alMontar } = {}) {
   m.hidden = false;
   const cerrar = () => { m.hidden = true; $('.modal-cuerpo', m).innerHTML = ''; };
   $('.modal-cerrar', m).onclick = cerrar;
-  m.onclick = (e) => { if (e.target === m) cerrar(); };
+  // Se cierra solo si el clic EMPEZÓ y TERMINÓ afuera: al seleccionar texto de un campo arrastrando el mouse
+  // y soltar afuera del recuadro, no se cierra
+  let abajoAfuera = false;
+  m.onmousedown = (e) => { abajoAfuera = e.target === m; };
+  m.onclick = (e) => { if (e.target === m && abajoAfuera) cerrar(); abajoAfuera = false; };
   if (alMontar) alMontar($('.modal-cuerpo', m), cerrar);
   const primero = $('input, textarea, select', m);
   if (primero) setTimeout(() => primero.focus(), 30);
@@ -843,7 +847,7 @@ function modalVincular(g, insumos, alTerminar) {
     <div id="v-nuevo" class="hidden"><div class="campo"><label>Nombre del insumo</label><input id="v-nom" value="${esc(g.nombre_sugerido || '')}" placeholder="Genérico, sin marca"></div>
       <div class="fila2"><div class="campo"><label>Rubro</label><input id="v-rub" list="dl-rub2" placeholder="Lácteos, Frutas…"><datalist id="dl-rub2">${rubros.map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>
       <div class="campo"><label>Se mide por</label><div class="seg" id="v-u">${Object.entries(UNI).map(([k, v]) => `<button type="button" data-u="${k}" class="${(g.unidad_base || 'kg') === k ? 'on' : ''}">${v}</button>`).join('')}</div></div></div></div>
-    <div class="campo"><label>¿Cuánto trae cada ${esc(unidadFact(g.unidad))}?</label><div class="fila-eq"><span class="muted">1 ${esc(unidadFact(g.unidad))} =</span><input id="v-fac" type="number" min="0" step="any" value="${esc(factorSugerido(g, sugIns?.unidad || g.unidad_base || 'kg') ?? '')}" style="max-width:140px"><span class="muted" id="v-ul"></span></div>
+    <div class="campo" id="v-campo-fac"><label>¿Cuánto trae cada ${esc(unidadFact(g.unidad))}?</label><div class="fila-eq"><span class="muted">1 ${esc(unidadFact(g.unidad))} =</span><input id="v-fac" type="number" min="0" step="any" value="${esc(factorSugerido(g, sugIns?.unidad || g.unidad_base || 'kg') ?? '')}" style="max-width:140px"><span class="muted" id="v-ul"></span></div>
       <div class="ayuda" id="v-prev"></div></div>
     <div class="acciones" style="margin-top:6px"><button class="btn btn-negro" id="v-ok">${ICO.link}Vincular</button></div>`, {
     alMontar: (m, cerrar) => {
@@ -853,6 +857,10 @@ function modalVincular(g, insumos, alTerminar) {
         $('#v-exist', m).classList.toggle('hidden', modo !== 'existente');
         $('#v-nuevo', m).classList.toggle('hidden', modo !== 'nuevo');
         $('#v-ul', m).textContent = UNI_C[unidad()];
+        // Si se compra directamente en la unidad del insumo (kg por kg), no hay nada que convertir: se oculta la pregunta
+        const directo = factorDirecto(g.unidad, unidad()) === 1;
+        $('#v-campo-fac label', m).textContent = directo ? `Se compra por ${UNI[unidad()]}: no hace falta convertir` : `¿Cuánto trae cada ${unidadFact(g.unidad)}?`;
+        $('#v-campo-fac .fila-eq', m).classList.toggle('hidden', directo);
         const f = Number($('#v-fac', m).value);
         $('#v-prev', m).innerHTML = f > 0 && unit ? `Precio comparable: <b>${$$m(unit / f)}</b> por ${esc(UNI[unidad()])} (neto, sin IVA). Así se compara con cualquier otro proveedor, venga en la presentación que venga.` : 'Ej: bolsa × 25 kg → 25 · bidón de 5 litros → 5 · si ya se factura por kg → 1.';
       };
