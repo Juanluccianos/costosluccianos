@@ -840,3 +840,13 @@ tr.fila-desc td { background: var(--pos-bg); }
 .tabla-vinc .ib-x .i { width: 16px; height: 16px; }
 @media (max-width: 720px) { .tabla-vinc .acc-in { flex-wrap: wrap; } .tabla-vinc .acc-vinc { white-space: normal; } }
 .tabla-vinc .vp-meta a { white-space: nowrap; }
+/* Buscador de insumos (combo) */
+.combo { position: relative; }
+.combo-in { width: 100%; }
+.combo-lista { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px); max-height: 260px; overflow: auto; margin: 0; padding: 4px; list-style: none;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-md); box-shadow: var(--sh-2); }
+.combo-lista li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer; }
+.combo-lista li small { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.combo-lista li.on { background: var(--accent-soft); }
+.combo-lista li.sel span { font-weight: 700; }
+.combo-lista li.vacio-combo { color: var(--muted); cursor: default; font-size: 13px; }

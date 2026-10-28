@@ -128,7 +128,8 @@ function contenidoEnDescripcion(desc, base) {
   if (base === 'kg') {
     if ((m = t.match(/X\s*(\d+(?:[.,]\d+)?)\s*(?:KG|KGS|K|KILOS?)\b/))) return n(m[1]);
     if ((m = t.match(/X\s*(\d+(?:[.,]\d+)?)\s*(?:GR|GRS|G)\b/))) return n(m[1]) / 1000;
-    if ((m = t.match(/(\d+(?:[.,]\d+)?)\s*(?:KG|KGS)\b/))) return n(m[1]);
+    if ((m = t.match(/(\d+)\s*\/\s*(\d+)\s*(?:KG|KGS)\b/))) return n(m[1]) / n(m[2]);   // "1/4KG" → 0,25
+    if ((m = t.match(/(?<![\d\/])(\d+(?:[.,]\d+)?)\s*(?:KG|KGS)\b/))) return n(m[1]);
   }
   if (base === 'l') {
     if ((m = t.match(/X?\s*(\d+(?:[.,]\d+)?)\s*(?:LT|LTS|L|LITROS?)\b/))) return n(m[1]);
@@ -685,6 +686,42 @@ const normQ = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').to
 const safeJ = (s) => { try { return JSON.parse(s); } catch { return null; } };
 const dec = (n) => n === null || n === undefined || n === '' ? '' : String(Math.round(Number(n) * 100) / 100).replace('.', ',');
 
+// ---- Buscador de insumos: reemplaza a un <select> (que queda oculto y sigue funcionando igual por detrás) ----
+// Se escribe para filtrar; flechas + Enter para elegir; Esc para cerrar.
+function comboSelect(sel, { placeholder = 'Escribí para buscar…' } = {}) {
+  if (!sel || sel.dataset.combo) return;
+  sel.dataset.combo = '1';
+  sel.classList.add('hidden');
+  const ops = [...sel.options].filter(o => o.value).map(o => ({ value: o.value, text: o.dataset.nombre || o.textContent, extra: o.dataset.extra || '' }));
+  const wrap = document.createElement('div'); wrap.className = 'combo';
+  wrap.innerHTML = `<input type="text" class="combo-in" placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false"><ul class="combo-lista" hidden role="listbox"></ul>`;
+  sel.after(wrap);
+  const inp = $('.combo-in', wrap), ul = $('.combo-lista', wrap);
+  const actual = () => ops.find(o => o.value === sel.value);
+  inp.value = actual()?.text || '';
+  let vis = [], act = 0;
+  const pintar = () => {
+    const q = normQ(inp.value === actual()?.text ? '' : inp.value).split(/\s+/).filter(Boolean);
+    vis = ops.filter(o => q.every(w => normQ(o.text + ' ' + o.extra).includes(w))).slice(0, 60);
+    act = Math.max(0, Math.min(act, vis.length - 1));
+    ul.innerHTML = vis.length ? vis.map((o, i) => `<li role="option" data-i="${i}" class="${i === act ? 'on' : ''} ${o.value === sel.value ? 'sel' : ''}"><span>${esc(o.text)}</span>${o.extra ? `<small>${esc(o.extra)}</small>` : ''}</li>`).join('')
+      : '<li class="vacio-combo">Ningún insumo coincide. Si no existe, usá “Insumo nuevo”.</li>';
+    ul.hidden = false;
+    const on = $('li.on', ul); if (on) on.scrollIntoView({ block: 'nearest' });
+  };
+  const elegir = (o) => { if (!o) return; sel.value = o.value; inp.value = o.text; ul.hidden = true; sel.dispatchEvent(new Event('change')); };
+  inp.addEventListener('focus', () => { inp.select(); act = 0; pintar(); });
+  inp.addEventListener('input', () => { act = 0; pintar(); });
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); act = Math.min(act + 1, vis.length - 1); pintar(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); act = Math.max(act - 1, 0); pintar(); }
+    else if (e.key === 'Enter') { e.preventDefault(); elegir(vis[act]); }
+    else if (e.key === 'Escape') { e.stopPropagation(); ul.hidden = true; inp.value = actual()?.text || ''; }
+  });
+  ul.addEventListener('mousedown', (e) => { const li = e.target.closest('li[data-i]'); if (li) { e.preventDefault(); elegir(vis[Number(li.dataset.i)]); } });
+  inp.addEventListener('blur', () => setTimeout(() => { ul.hidden = true; if (inp.value !== (actual()?.text || '')) inp.value = actual()?.text || ''; }, 120));
+}
+
 // Alta / edición de un insumo
 function modalInsumo(ins, alGuardar) {
   const rubros = [...new Set([...RUBROS_BASE, ...(S.rubros || [])])];
@@ -783,9 +820,9 @@ function modalUnir(i) {
     const otros = r.insumos.filter(x => x.id !== i.id && x.unidad === i.unidad);
     if (!otros.length) { toast(`No hay otro insumo medido en ${UNI[i.unidad]} para unir.`, true); return; }
     modal(`<h2>Unir con otro insumo</h2><p class="muted">Usalo si creaste el mismo insumo dos veces. Las compras, descripciones y alertas de <b>${esc(i.nombre)}</b> pasan al insumo que elijas y este se borra.</p>
-      <div class="campo"><label>Unir con</label><select id="u-dest">${otros.map(x => `<option value="${x.id}">${esc(x.nombre)}${x.rubro ? ' · ' + esc(x.rubro) : ''}</option>`).join('')}</select></div>
+      <div class="campo"><label>Unir con</label><select id="u-dest">${otros.map(x => `<option value="${x.id}" data-nombre="${esc(x.nombre)}" data-extra="${esc(UNI_C[x.unidad])}${x.rubro ? ' · ' + esc(x.rubro) : ''}">${esc(x.nombre)}</option>`).join('')}</select></div>
       <div class="acciones"><button class="btn btn-rojo" id="u-ok">${ICO.merge}Unir</button></div>`, {
-      alMontar: (m, cerrar) => { $('#u-ok', m).onclick = () => conBoton($('#u-ok', m), async () => { const x = await api(`/api/insumos/${i.id}/unir`, { method: 'POST', body: { destino_id: Number($('#u-dest', m).value) } }); cerrar(); toast('Unidos'); location.hash = '#/insumo/' + x.id; }); },
+      alMontar: (m, cerrar) => { comboSelect($('#u-dest', m)); $('#u-ok', m).onclick = () => conBoton($('#u-ok', m), async () => { const x = await api(`/api/insumos/${i.id}/unir`, { method: 'POST', body: { destino_id: Number($('#u-dest', m).value) } }); cerrar(); toast('Unidos'); location.hash = '#/insumo/' + x.id; }); },
     });
   }).catch(e => toast(e.message, true));
 }
@@ -794,7 +831,7 @@ function modalUnir(i) {
 async function modalRenglon(r, ins) {
   const lista = (await api('/api/insumos')).insumos.filter(x => x.activo);
   modal(`<h2>Corregir compra</h2><p class="muted">${esc(r.proveedor || '')} · ${fmtF(r.fecha)}<br><span class="desc-fac">${esc(r.descripcion)}</span> · ${fmtCant.format(r.cantidad || 0)} ${esc(r.unidad || '')} a ${$$m(r.precio_unitario)}</p>
-    <div class="campo"><label>Insumo</label><select id="r-ins">${lista.map(x => `<option value="${x.id}" data-u="${x.unidad}" ${x.id === ins.id ? 'selected' : ''}>${esc(x.nombre)} (${esc(UNI_C[x.unidad])})</option>`).join('')}</select></div>
+    <div class="campo"><label>Insumo</label><select id="r-ins">${lista.map(x => `<option value="${x.id}" data-u="${x.unidad}" data-nombre="${esc(x.nombre)}" data-extra="${esc(UNI_C[x.unidad])}${x.rubro ? ' · ' + esc(x.rubro) : ''}" ${x.id === ins.id ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select></div>
     <div class="campo"><label>¿Cuánto trae cada ${esc(unidadFact(r.unidad))}?</label><div class="fila-eq"><span class="muted">1 ${esc(unidadFact(r.unidad))} =</span><input id="r-fac" type="number" min="0" step="any" value="${esc(r.factor ?? '')}" style="max-width:160px"><span class="muted" id="r-u">${esc(UNI_C[ins.unidad])}</span></div>
       <div class="ayuda" id="r-prev"></div></div>
     <label class="check"><input type="checkbox" id="r-todos" checked> Aplicar a todas las compras con esta descripción de este proveedor</label>
@@ -806,6 +843,7 @@ async function modalRenglon(r, ins) {
         const unit = r.cantidad ? r.importe_ars / r.cantidad : null;
         $('#r-prev', m).innerHTML = f > 0 && unit ? `Precio comparable: <b>${$$m(unit / f)}</b> por ${esc(UNI[sel.dataset.u])}.` : '';
       };
+      comboSelect($('#r-ins', m));
       $('#r-ins', m).onchange = prev; $('#r-fac', m).oninput = prev; prev();
       const enviar = (body) => conBoton($('#r-ok', m), async () => { await api('/api/renglones/' + r.id, { method: 'PUT', body: { ...body, todos: $('#r-todos', m).checked } }); cerrar(); toast('Guardado'); router(); });
       $('#r-ok', m).onclick = () => enviar({ insumo_id: Number($('#r-ins', m).value), factor: Number($('#r-fac', m).value), ignorado: false });
@@ -883,7 +921,7 @@ function modalVincular(g, insumos, alTerminar) {
   modal(`<h2>Vincular descripción</h2>
     <p class="muted" style="margin-bottom:14px"><b>${esc(g.proveedor)}</b><br><span class="desc-fac">${esc(g.descripcion)}</span><br>${g.n} compra(s) · ${$$m(g.precio_unitario)} por ${esc(unidadMostrar(g.unidad, factorSugerido(g, sugIns?.unidad || g.unidad_base || 'kg'), null, g.descripcion))}${g.factura_id ? ` · <a href="#/factura/${g.factura_id}" data-irfac="${g.factura_id}">ver factura</a>` : ''}</p>
     <div class="seg" id="v-modo"><button type="button" data-m="existente" class="${sugIns || !g.nombre_sugerido ? 'on' : ''}">Insumo existente</button><button type="button" data-m="nuevo" class="${!sugIns && g.nombre_sugerido ? 'on' : ''}">Insumo nuevo</button></div>
-    <div id="v-exist" class="campo"><label>Insumo</label><select id="v-ins"><option value="">Elegí…</option>${insumos.map(i => `<option value="${i.id}" data-u="${i.unidad}" ${sugIns?.id === i.id ? 'selected' : ''}>${esc(i.nombre)} (${esc(UNI_C[i.unidad])})</option>`).join('')}</select></div>
+    <div id="v-exist" class="campo"><label>Insumo</label><select id="v-ins"><option value="">Elegí…</option>${insumos.map(i => `<option value="${i.id}" data-u="${i.unidad}" data-nombre="${esc(i.nombre)}" data-extra="${esc(UNI_C[i.unidad])}${i.rubro ? ' · ' + esc(i.rubro) : ''}" ${sugIns?.id === i.id ? 'selected' : ''}>${esc(i.nombre)}</option>`).join('')}</select></div>
     <div id="v-nuevo" class="hidden"><div class="campo"><label>Nombre del insumo</label><input id="v-nom" value="${esc(g.nombre_sugerido || '')}" placeholder="Genérico, sin marca"></div>
       <div class="fila2"><div class="campo"><label>Rubro</label><input id="v-rub" list="dl-rub2" placeholder="Lácteos, Frutas…"><datalist id="dl-rub2">${rubros.map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>
       <div class="campo"><label>Se mide por</label><div class="seg" id="v-u">${Object.entries(UNI).map(([k, v]) => `<button type="button" data-u="${k}" class="${(g.unidad_base || 'kg') === k ? 'on' : ''}">${v}</button>`).join('')}</div></div></div></div>
@@ -909,6 +947,7 @@ function modalVincular(g, insumos, alTerminar) {
       $$('#v-u button', m).forEach(b => b.onclick = () => { uNuevo = b.dataset.u; $$('#v-u button', m).forEach(x => x.classList.toggle('on', x === b)); prev(); });
       // Al cambiar de insumo (o de unidad del nuevo), si la unidad facturada es directa se completa sola
       const reFactor = () => { $('#v-fac', m).value = factorSugerido({ ...g, unidad_base: g.unidad_base === unidad() ? g.unidad_base : null, contenido: g.unidad_base === unidad() ? g.contenido : null }, unidad()) ?? ''; prev(); };
+      comboSelect($('#v-ins', m));
       $('#v-ins', m).onchange = reFactor; $('#v-fac', m).oninput = prev;
       $$('#v-u button', m).forEach(b => b.addEventListener('click', reFactor));
       $$('[data-irfac]', m).forEach(a => a.onclick = (e) => { e.preventDefault(); cerrar(); irFactura(a.dataset.irfac); });
