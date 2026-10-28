@@ -1021,7 +1021,7 @@ async function adminSalud(el) {
   const s = await api('/api/salud');
   const fila = (ok, t, det, prueba) => `<tr><td>${ok ? '<span class="badge b-ok">OK</span>' : '<span class="badge b-critica">Falta</span>'}</td><td><b>${t}</b><div class="small muted">${det}</div></td><td>${prueba ? `<button class="btn btn-chico" data-probar="${prueba}">Probar</button>` : ''}</td></tr>`;
   el.innerHTML = `<table class="sin-orden"><tbody>
-    ${fila(s.gemini, 'Gemini (lectura de renglones)', `GEMINI_KEY · modelos ${esc(s.gemini_modelos.join(', '))}`, 'gemini')}
+    ${fila(s.gemini, 'Gemini (lectura de renglones)', `GEMINI_KEY · modelos ${esc(s.gemini_modelos.join(', '))}${s.gemini_saturado ? ` · <span class="txt-neg">Google estuvo saturado a las ${esc(fmtFH(s.gemini_saturado + 'Z'))}: la lectura se reintenta sola cada 10 minutos</span>` : ''}`, 'gemini')}
     ${fila(s.facturas_binding && s.costos_secret, 'App de facturas de proveedores', `Service binding FACTURAS ${s.facturas_binding ? 'cargado' : 'falta'} · COSTOS_SECRET ${s.costos_secret ? 'cargado' : 'falta'}`, 'facturas')}
     ${fila(!!s.ultima_sync, 'Sincronización', s.ultima_sync ? `Última: ${fmtFH(s.ultima_sync + 'Z')} · hasta la factura #${esc(s.cursor || 0)}` : 'Todavía no corrió. Corre sola cada 10 minutos (Cron Trigger).')}
     ${fila(true, 'Datos', `${s.insumos} insumo(s) · ${s.vinculos} descripción(es) vinculada(s) · ${s.renglones} renglón(es) leído(s)`)}
