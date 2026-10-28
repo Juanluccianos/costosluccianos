@@ -1,7 +1,7 @@
 /* Service worker de la app: la hace instalable y abre aunque la señal sea mala.
  * Siempre intenta traer la versión nueva (red primero); si no hay conexión, usa la última guardada.
  * No toca los pedidos al Worker (datos): esos van siempre a la red. */
-const CACHE = 'costos-v8';
+const CACHE = 'costos-v9';
 const BASE = ['./', 'index.html', 'app.js', 'styles.css', 'logo-negro.png', 'logo-blanco.png', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png'];
 
 self.addEventListener('install', (e) => {

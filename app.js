@@ -113,7 +113,7 @@ function unidadMostrar(uFact, factor, base, desc) {
 function textoEquivale(uFact, factor, base, desc) {
   if (!factor) return 'falta indicar cuánto trae';
   const n = unidadMostrar(uFact, factor, base, desc);
-  if (factorDirecto(uFact, base) === Number(factor) && Number(factor) === 1) return `se compra por ${UNI_C[base] === 'u.' ? 'unidad' : UNI_C[base]}`;
+  if (factorDirecto(uFact, base) === Number(factor) && Number(factor) === 1) return `se compra por ${UNI[base]}`;
   return `1 ${n} = ${fmtCant.format(factor)} ${UNI_C[base]}`;
 }
 // Contenido declarado en la descripción: "BULTOX100U" → 100 u. · "CAJ X 15 KG" → 15 kg · "X 500 GR" → 0,5 kg · "X 5 LT" → 5 l
@@ -843,13 +843,16 @@ async function vistaVincular(el) {
     const fila = (g) => {
       const k = r.grupos.indexOf(g), s = sugerencia(g);
       const pc = s ? precioComparable(g.ult_unit_ars, s.factor) : null;
+      // Control: si el insumo ya tiene precio y este queda muy lejos (más del doble o menos de la mitad), algo está mal leído
+      const ref = s?.ins ? insPorId.get(s.ins.id)?.ult_precio : null;
+      const raro = pc && ref && (pc / ref > 2 || pc / ref < 0.5);
       return `<tr class="click fila-vinc" data-fac="${g.factura_id}" title="Tocá para ver la factura">
         <td><div class="vp-desc">${esc(g.descripcion)}</div>
           <div class="vp-meta">${g.codigo ? `Cód. ${esc(g.codigo)} · ` : ''}${g.n} compra${g.n > 1 ? 's' : ''} · última ${fmtF(g.ultima_fecha)} · <a href="#/factura/${g.factura_id}" data-irfac="${g.factura_id}">ver factura</a></div></td>
         <td class="num"><b>${g.moneda && g.moneda !== 'PES' ? esc(g.moneda) + ' ' : ''}${$$m(g.precio_unitario)}</b><div class="vp-meta">por ${esc(s ? unidadMostrar(g.unidad, s.factor, s.u, g.descripcion) : unidadFact(g.unidad))}</div></td>
         <td>${s ? `<div class="vp-ins">${esc(s.nombre)}${s.nuevo ? '<span class="vp-nuevo">nuevo</span>' : ''}</div><div class="vp-meta">${esc(textoEquivale(g.unidad, s.factor, s.u, g.descripcion))}</div>` : '<span class="vp-meta">Sin sugerencia</span>'}</td>
-        <td class="num">${pc ? `<b>${fmtP(pc, s.u)}</b>` : '<span class="vp-meta">—</span>'}</td>
-        <td class="acc-vinc"><div class="acc-in">${puede('editor') ? `${s && s.factor ? `<button class="btn btn-acento btn-chico" data-ok="${k}">${ICO.check}Confirmar</button>` : ''}<button class="btn btn-chico" data-v="${k}">${s && s.factor ? 'Cambiar' : 'Vincular'}</button><button class="ibtn ib-x" data-ign="${k}" title="No es insumo (flete, servicio, descuento…)" aria-label="No es insumo">${ICO.x}</button>` : ''}</div></td></tr>`;
+        <td class="num">${pc ? `<b>${fmtP(pc, s.u)}</b>${raro ? `<div class="vp-meta txt-neg">⚠ el último fue ${fmtP(ref, s.u)}: revisá la equivalencia</div>` : ''}` : '<span class="vp-meta">—</span>'}</td>
+        <td class="acc-vinc"><div class="acc-in">${puede('editor') ? `${s && s.factor && !raro ? `<button class="btn btn-acento btn-chico" data-ok="${k}">${ICO.check}Confirmar</button>` : ''}<button class="btn btn-chico" data-v="${k}">${s && s.factor ? 'Cambiar' : 'Vincular'}</button><button class="ibtn ib-x" data-ign="${k}" title="No es insumo (flete, servicio, descuento…)" aria-label="No es insumo">${ICO.x}</button>` : ''}</div></td></tr>`;
     };
     $('#tb').innerHTML = lista.length ? [...porProv.values()].sort((a, b) => b.total - a.total).map(p => `<tr class="grupo-vinc"><td colspan="5"><div class="prov">${cuad(p.proveedor)}<div><b>${esc(p.proveedor)}</b><small class="mono">${fmtCuit(p.cuit)} · ${p.items.length > 1 ? p.items.length + ' descripciones' : '1 descripción'}</small></div></div></td></tr>${p.items.map(fila).join('')}`).join('')
       : `<tr><td colspan="5" class="vacio">${r.grupos.length ? 'Nada coincide con el filtro.' : '<span class="grande">Todo vinculado</span>Cada descripción de las facturas ya tiene su insumo.'}</td></tr>`;
