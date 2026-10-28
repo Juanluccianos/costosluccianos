@@ -817,3 +817,8 @@ tr.vista td { opacity: .7; }
 tr.fila-desc td { background: var(--pos-bg); }
 .ficha-fac .cuadre-fac { justify-content: flex-start; }
 .tabla-ren td.num .sub-celda { white-space: nowrap; }
+.sug .pc { display: block; margin-top: 2px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sug small { display: block; }
+.fila-eq { display: flex; align-items: center; gap: 10px; }
+.fila-eq input { margin: 0; }
+.tabla-ren td.num { white-space: nowrap; }

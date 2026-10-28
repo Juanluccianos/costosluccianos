@@ -78,6 +78,41 @@ const LECTURAS = {
   ok: ['Leída', 'b-ok'], revisar: ['No cierra', 'b-warn'], sin_renglones: ['Sin renglones', 'b-warn'], error: ['Error al leer', 'b-critica'], descartada: ['Descartada', 'b-aviso'],
 };
 const badgeLectura = (l) => `<span class="badge ${(LECTURAS[l] || [])[1] || ''}">${esc((LECTURAS[l] || [l])[0])}</span>`;
+// ---- Unidades: siempre se compara por kg, litro o unidad, más allá de la presentación ----
+// Unidad tal como viene en la factura → nombre legible
+function unidadFact(u) {
+  const t = normQ(u).replace(/[^a-z]/g, '');
+  if (!t) return 'unidad';
+  const M = [[/^(kg|kgs|kilo|kilos|kilogramo|kilogramos|k)$/, 'kg'], [/^(gr|grs|g|gramo|gramos)$/, 'gramo'], [/^(tn|ton|tonelada|toneladas)$/, 'tonelada'],
+    [/^(l|lt|lts|litro|litros|ltr)$/, 'litro'], [/^(ml|cc|mililitro|mililitros)$/, 'ml'],
+    [/^(u|un|uni|unid|unidad|unidades|ud|uds|c\/u|cu)$/, 'unidad'], [/^caj|^cja|^cj$/, 'caja'], [/^bul/, 'bulto'], [/^bol/, 'bolsa'], [/^bal/, 'balde'],
+    [/^bid/, 'bidón'], [/^pa?q|^pack/, 'paquete'], [/^tam/, 'tambor'], [/^dis|^dsp/, 'display'], [/^bot/, 'botella'], [/^doc/, 'docena'], [/^fr/, 'frasco'], [/^lat/, 'lata'], [/^rol/, 'rollo']];
+  for (const [rx, n] of M) if (rx.test(t)) return n;
+  return String(u).toLowerCase();
+}
+// Si la unidad facturada ya es de peso/volumen/unidad, el factor sale solo (1 kg = 1 kg; 1 gramo = 0,001 kg; 1 docena = 12 u.)
+function factorDirecto(uFact, base) {
+  const n = unidadFact(uFact);
+  const T = { kg: { kg: 1, gramo: 0.001, tonelada: 1000 }, l: { litro: 1, ml: 0.001 }, un: { unidad: 1, docena: 12 } };
+  return (T[base] || {})[n] ?? null;
+}
+// "1 caja = 15 kg" / "se compra por kg"
+function textoEquivale(uFact, factor, base) {
+  if (!factor) return 'falta indicar cuánto trae';
+  const n = unidadFact(uFact);
+  if (factorDirecto(uFact, base) === Number(factor) && Number(factor) === 1) return `se compra por ${UNI_C[base] === 'u.' ? 'unidad' : UNI_C[base]}`;
+  return `1 ${n} = ${fmtCant.format(factor)} ${UNI_C[base]}`;
+}
+// Factor sugerido para vincular: el directo por unidad, o lo que propuso la IA si está en la misma unidad base
+function factorSugerido(g, base) {
+  const d = factorDirecto(g.unidad, base);
+  if (d) return d;
+  if (g.contenido && (!g.unidad_base || g.unidad_base === base)) return g.contenido;
+  return null;
+}
+// Precio comparable: $ por kg / litro / unidad
+const precioComparable = (unitArs, factor) => unitArs && factor ? unitArs / factor : null;
+
 const RUBROS_BASE = ['Lácteos', 'Azúcares y endulzantes', 'Chocolates y cacao', 'Frutas', 'Frutos secos', 'Pastas y saborizantes', 'Estabilizantes y aditivos', 'Envases y packaging', 'Descartables', 'Otros'];
 
 
@@ -678,21 +713,21 @@ async function vistaInsumo(el, id) {
         : '<div class="vacio">Sin alertas para este insumo.</div>'}</div>
     </div>
     <div class="panel"><div class="panel-titulo"><h2>Compras</h2><button class="btn btn-ghost btn-chico" id="b-csv">${ICO.doc}Exportar CSV</button></div>
-      <div class="tabla-wrap tabla-scroll" style="max-height:70vh"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Descripción en la factura</th><th class="num">Cantidad</th><th class="num">Trae</th><th class="num">Precio unitario</th><th class="num">Por ${esc(UNI_C[u])}</th><th></th></tr></thead><tbody>
+      <div class="tabla-wrap tabla-scroll" style="max-height:70vh"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Descripción en la factura</th><th class="num">Cantidad</th><th>Equivale</th><th class="num">Precio facturado</th><th class="num">Por ${esc(UNI[u])}</th><th></th></tr></thead><tbody>
       ${d.renglones.length ? d.renglones.map(r => `<tr class="${r.ignorado ? 'inactivo' : ''}">
         <td class="mono">${fmtF(r.fecha)}</td><td>${esc(r.proveedor || '')}<small class="sub-celda"><a href="#" data-fac="${r.factura_id}">${esc(TIPOS[r.tipo] || '')} ${nroCbte(r)}</a></small></td>
         <td class="desc-fac">${esc(r.descripcion)}</td>
-        <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(r.unidad || '')}</small></td>
-        <td class="num">${r.factor ? fmtCant.format(r.factor) + ' ' + esc(UNI_C[u]) : '—'}</td>
+        <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(unidadFact(r.unidad))}</small></td>
+        <td class="small">${esc(textoEquivale(r.unidad, r.factor, u))}</td>
         <td class="num">${r.moneda && r.moneda !== 'PES' ? esc(r.moneda) + ' ' : ''}${$$m(r.precio_unitario)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}${r.desc_pct ? `<small class="sub-celda txt-pos">desc. general ${dec(r.desc_pct)} %</small>` : ''}</td>
         <td class="num"><b>${r.ignorado ? '<span class="muted">No cuenta</span>' : fmtP(r.precio_base, u)}</b></td>
         <td>${puede('editor') ? `<button class="btn btn-chico" data-ren="${r.id}" title="Corregir">${ICO.pencil}</button>` : ''}</td></tr>`).join('')
         : '<tr><td colspan="8" class="vacio">Sin compras.</td></tr>'}</tbody></table></div></div>
-    ${d.vinculos.length ? `<div class="panel"><div class="panel-titulo"><h2>Descripciones vinculadas</h2></div><div class="tabla-wrap"><table><thead><tr><th>Proveedor</th><th>Descripción</th><th class="num">Trae</th><th class="num">Compras</th></tr></thead><tbody>
-      ${d.vinculos.map(v => `<tr><td>${esc(v.proveedor || fmtCuit(v.cuit))}</td><td class="desc-fac">${esc(v.descripcion || v.clave)}</td><td class="num">${v.factor ? fmtCant.format(v.factor) + ' ' + esc(UNI_C[u]) : '—'}</td><td class="num">${v.usos}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
+    ${d.vinculos.length ? `<div class="panel"><div class="panel-titulo"><h2>Descripciones vinculadas</h2></div><div class="tabla-wrap"><table><thead><tr><th>Proveedor</th><th>Descripción</th><th>Equivale</th><th class="num">Compras</th></tr></thead><tbody>
+      ${d.vinculos.map(v => `<tr><td>${esc(v.proveedor || fmtCuit(v.cuit))}</td><td class="desc-fac">${esc(v.descripcion || v.clave)}</td><td class="small">${v.factor ? esc(textoEquivale(d.renglones.find(r => r.cuit === v.cuit)?.unidad, v.factor, u)) : '—'}</td><td class="num">${v.usos}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
 
   graficoPrecios($('#graf'), $('#leyenda'), d.compras, u);
-  $$('[data-fac]', el).forEach(a => a.onclick = (e) => { e.preventDefault(); location.hash = '#/factura/' + a.dataset.fac; });
+  $$('[data-fac]', el).forEach(a => a.onclick = (e) => { e.preventDefault(); irFactura(a.dataset.fac); });
   $('#b-csv').onclick = () => descargarCsv(`${normQ(i.nombre).replace(/[^a-z0-9]+/g, '_')}_compras.csv`, [
     ['Fecha', 'Proveedor', 'Factura', 'Descripción', 'Cantidad', 'Unidad', 'Trae', 'Precio unitario', 'Moneda', 'Importe ARS', `Precio por ${UNI_C[u]}`],
     ...d.renglones.map(r => [r.fecha || '', r.proveedor || '', `${TIPOS[r.tipo] || ''} ${nroCbte(r)}`, r.descripcion, dec(r.cantidad), r.unidad || '', dec(r.factor), dec(r.precio_unitario), r.moneda || 'PES', dec(r.importe_ars), r.ignorado ? '' : dec(r.precio_base)]),
@@ -719,7 +754,7 @@ async function modalRenglon(r, ins) {
   const lista = (await api('/api/insumos')).insumos.filter(x => x.activo);
   modal(`<h2>Corregir compra</h2><p class="muted">${esc(r.proveedor || '')} · ${fmtF(r.fecha)}<br><span class="desc-fac">${esc(r.descripcion)}</span> · ${fmtCant.format(r.cantidad || 0)} ${esc(r.unidad || '')} a ${$$m(r.precio_unitario)}</p>
     <div class="campo"><label>Insumo</label><select id="r-ins">${lista.map(x => `<option value="${x.id}" data-u="${x.unidad}" ${x.id === ins.id ? 'selected' : ''}>${esc(x.nombre)} (${esc(UNI_C[x.unidad])})</option>`).join('')}</select></div>
-    <div class="campo"><label>¿Cuánto trae cada ${esc(r.unidad || 'unidad facturada')}?</label><div class="fila"><input id="r-fac" type="number" min="0" step="any" value="${esc(r.factor ?? '')}" style="max-width:160px"><span class="muted" id="r-u">${esc(UNI_C[ins.unidad])}</span></div>
+    <div class="campo"><label>¿Cuánto trae cada ${esc(unidadFact(r.unidad))}?</label><div class="fila-eq"><span class="muted">1 ${esc(unidadFact(r.unidad))} =</span><input id="r-fac" type="number" min="0" step="any" value="${esc(r.factor ?? '')}" style="max-width:160px"><span class="muted" id="r-u">${esc(UNI_C[ins.unidad])}</span></div>
       <div class="ayuda" id="r-prev"></div></div>
     <label class="check"><input type="checkbox" id="r-todos" checked> Aplicar a todas las compras con esta descripción de este proveedor</label>
     <div class="acciones" style="margin-top:16px"><button class="btn btn-negro" id="r-ok">Guardar</button><button class="btn" id="r-ign">${r.ignorado ? 'Volver a contar' : 'No cuenta (no es este insumo)'}</button></div>`, {
@@ -728,7 +763,7 @@ async function modalRenglon(r, ins) {
         const sel = $('#r-ins', m).selectedOptions[0], f = Number($('#r-fac', m).value);
         $('#r-u', m).textContent = UNI_C[sel.dataset.u];
         const unit = r.cantidad ? r.importe_ars / r.cantidad : null;
-        $('#r-prev', m).innerHTML = f > 0 && unit ? `Queda en <b>${$$m(unit / f)}</b> por ${esc(UNI_C[sel.dataset.u])}.` : '';
+        $('#r-prev', m).innerHTML = f > 0 && unit ? `Precio comparable: <b>${$$m(unit / f)}</b> por ${esc(UNI[sel.dataset.u])}.` : '';
       };
       $('#r-ins', m).onchange = prev; $('#r-fac', m).oninput = prev; prev();
       const enviar = (body) => conBoton($('#r-ok', m), async () => { await api('/api/renglones/' + r.id, { method: 'PUT', body: { ...body, todos: $('#r-todos', m).checked } }); cerrar(); toast('Guardado'); router(); });
@@ -750,27 +785,29 @@ async function vistaVincular(el) {
   el.innerHTML = `<div class="encabezado"><div><h1>Para vincular</h1><p>Descripciones nuevas de las facturas. Decí una vez qué insumo es cada una y cuánto trae: después se reconocen solas.</p></div></div>
     <div class="panel"><div class="cola-bar"><label class="campo-buscar">${ICO.search}<input id="q" placeholder="Descripción o proveedor"></label>
       <select id="f-prov" style="max-width:260px"><option value="">Todos los proveedores</option>${provs.map(p => `<option>${esc(p)}</option>`).join('')}</select></div>
-      <div class="tabla-wrap"><table class="sin-orden"><thead><tr><th>Proveedor</th><th>Descripción en la factura</th><th class="num">Compras</th><th class="num">Precio unitario</th><th>Sugerencia</th><th></th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
+      <div class="tabla-wrap"><table class="sin-orden"><thead><tr><th>Proveedor</th><th>Descripción en la factura</th><th class="num">Compras</th><th class="num">Precio facturado</th><th>Sugerencia y precio comparable</th><th></th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
   const sugerencia = (g) => {
     const ins = g.sugerido_insumo_id ? insPorId.get(g.sugerido_insumo_id) : null;
     const nombre = ins ? ins.nombre : g.nombre_sugerido;
     if (!nombre) return null;
     const u = ins ? ins.unidad : (g.unidad_base || 'kg');
-    return { ins, nombre, u, factor: g.contenido || null, nuevo: !ins };
+    return { ins, nombre, u, factor: factorSugerido(g, u), nuevo: !ins };
   };
   const pintar = () => {
     const q = normQ($('#q').value);
     const lista = r.grupos.filter(g => (!prov || g.proveedor === prov) && (!q || normQ(g.descripcion + ' ' + g.proveedor + ' ' + (g.codigo || '')).includes(q)));
     $('#tb').innerHTML = lista.length ? lista.map((g, k) => {
       const s = sugerencia(g);
-      return `<tr data-k="${r.grupos.indexOf(g)}">
+      const pc = s ? precioComparable(g.ult_unit_ars, s.factor) : null;
+      return `<tr class="click" data-fac="${g.factura_id}" title="Ver la factura">
         <td><div class="prov">${cuad(g.proveedor)}<div><b>${esc(g.proveedor)}</b><small class="mono">${fmtCuit(g.cuit)}</small></div></div></td>
-        <td><span class="desc-fac">${esc(g.descripcion)}</span>${g.codigo ? `<small class="sub-celda mono">Cód. ${esc(g.codigo)}</small>` : ''}</td>
+        <td><span class="desc-fac">${esc(g.descripcion)}</span><small class="sub-celda">${g.codigo ? `<span class="mono">Cód. ${esc(g.codigo)}</span> · ` : ''}<a href="#/factura/${g.factura_id}" data-irfac="${g.factura_id}">Ver factura</a></small></td>
         <td class="num">${g.n}<small class="sub-celda">última ${fmtF(g.ultima_fecha)}</small></td>
-        <td class="num">${g.moneda && g.moneda !== 'PES' ? esc(g.moneda) + ' ' : ''}${$$m(g.precio_unitario)}<small class="sub-celda">por ${esc(g.unidad || 'unidad')}</small></td>
-        <td>${s ? `<div class="sug"><b>${esc(s.nombre)}</b>${s.nuevo ? ' <span class="badge b-aviso">nuevo</span>' : ''}<small>${s.factor ? `trae ${fmtCant.format(s.factor)} ${esc(UNI_C[s.u])} por ${esc(g.unidad || 'unidad')}` : 'falta cuánto trae'}</small></div>` : '<span class="muted small">Sin sugerencia</span>'}</td>
+        <td class="num">${g.moneda && g.moneda !== 'PES' ? esc(g.moneda) + ' ' : ''}${$$m(g.precio_unitario)}<small class="sub-celda">por ${esc(unidadFact(g.unidad))}</small></td>
+        <td>${s ? `<div class="sug"><b>${esc(s.nombre)}</b>${s.nuevo ? ' <span class="badge b-aviso">nuevo</span>' : ''}<small>${esc(textoEquivale(g.unidad, s.factor, s.u))}</small>${pc ? `<span class="pc">${fmtP(pc, s.u)}</span>` : ''}</div>` : '<span class="muted small">Sin sugerencia</span>'}</td>
         <td class="acc-vinc">${puede('editor') ? `${s && s.factor ? `<button class="btn btn-acento btn-chico" data-ok="${r.grupos.indexOf(g)}">${ICO.check}Confirmar</button>` : ''}<button class="btn btn-chico" data-v="${r.grupos.indexOf(g)}">${s && s.factor ? 'Cambiar' : 'Vincular'}</button><button class="btn btn-ghost btn-chico" data-ign="${r.grupos.indexOf(g)}" title="Flete, servicio, descuento…">No es insumo</button>` : ''}</td></tr>`;
     }).join('') : `<tr><td colspan="6" class="vacio">${r.grupos.length ? 'Nada coincide con el filtro.' : '<span class="grande">Todo vinculado</span>Cada descripción de las facturas ya tiene su insumo.'}</td></tr>`;
+    $$('#tb tr[data-fac]').forEach(tr => tr.onclick = (e) => { if (e.target.closest('button')) return; e.preventDefault(); irFactura(tr.dataset.fac); });
     $$('[data-v]').forEach(b => b.onclick = () => modalVincular(r.grupos[b.dataset.v], r.insumos, () => router()));
     $$('[data-ok]').forEach(b => b.onclick = () => conBoton(b, async () => {
       const g = r.grupos[b.dataset.ok], s = sugerencia(g);
@@ -794,13 +831,13 @@ function modalVincular(g, insumos, alTerminar) {
   const rubros = [...new Set([...RUBROS_BASE, ...(S.rubros || [])])];
   const unit = g.ult_unit_ars || (g.cantidad ? g.importe_ars / g.cantidad : null);   // $ por unidad facturada de la última compra (en pesos)
   modal(`<h2>Vincular descripción</h2>
-    <p class="muted" style="margin-bottom:14px"><b>${esc(g.proveedor)}</b><br><span class="desc-fac">${esc(g.descripcion)}</span><br>${g.n} compra(s) · ${$$m(g.precio_unitario)} por ${esc(g.unidad || 'unidad')}</p>
+    <p class="muted" style="margin-bottom:14px"><b>${esc(g.proveedor)}</b><br><span class="desc-fac">${esc(g.descripcion)}</span><br>${g.n} compra(s) · ${$$m(g.precio_unitario)} por ${esc(unidadFact(g.unidad))}${g.factura_id ? ` · <a href="#/factura/${g.factura_id}" data-irfac="${g.factura_id}">ver factura</a>` : ''}</p>
     <div class="seg" id="v-modo"><button type="button" data-m="existente" class="${sugIns || !g.nombre_sugerido ? 'on' : ''}">Insumo existente</button><button type="button" data-m="nuevo" class="${!sugIns && g.nombre_sugerido ? 'on' : ''}">Insumo nuevo</button></div>
     <div id="v-exist" class="campo"><label>Insumo</label><select id="v-ins"><option value="">Elegí…</option>${insumos.map(i => `<option value="${i.id}" data-u="${i.unidad}" ${sugIns?.id === i.id ? 'selected' : ''}>${esc(i.nombre)} (${esc(UNI_C[i.unidad])})</option>`).join('')}</select></div>
     <div id="v-nuevo" class="hidden"><div class="campo"><label>Nombre del insumo</label><input id="v-nom" value="${esc(g.nombre_sugerido || '')}" placeholder="Genérico, sin marca"></div>
       <div class="fila2"><div class="campo"><label>Rubro</label><input id="v-rub" list="dl-rub2" placeholder="Lácteos, Frutas…"><datalist id="dl-rub2">${rubros.map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>
       <div class="campo"><label>Se mide por</label><div class="seg" id="v-u">${Object.entries(UNI).map(([k, v]) => `<button type="button" data-u="${k}" class="${(g.unidad_base || 'kg') === k ? 'on' : ''}">${v}</button>`).join('')}</div></div></div></div>
-    <div class="campo"><label>¿Cuánto trae cada ${esc(g.unidad || 'unidad facturada')}?</label><div class="fila"><input id="v-fac" type="number" min="0" step="any" value="${esc(g.contenido ?? '')}" style="max-width:160px"><span class="muted" id="v-ul"></span></div>
+    <div class="campo"><label>¿Cuánto trae cada ${esc(unidadFact(g.unidad))}?</label><div class="fila-eq"><span class="muted">1 ${esc(unidadFact(g.unidad))} =</span><input id="v-fac" type="number" min="0" step="any" value="${esc(factorSugerido(g, sugIns?.unidad || g.unidad_base || 'kg') ?? '')}" style="max-width:140px"><span class="muted" id="v-ul"></span></div>
       <div class="ayuda" id="v-prev"></div></div>
     <div class="acciones" style="margin-top:6px"><button class="btn btn-negro" id="v-ok">${ICO.link}Vincular</button></div>`, {
     alMontar: (m, cerrar) => {
@@ -811,11 +848,16 @@ function modalVincular(g, insumos, alTerminar) {
         $('#v-nuevo', m).classList.toggle('hidden', modo !== 'nuevo');
         $('#v-ul', m).textContent = UNI_C[unidad()];
         const f = Number($('#v-fac', m).value);
-        $('#v-prev', m).innerHTML = f > 0 && unit ? `Queda en <b>${$$m(unit / f)}</b> por ${esc(UNI_C[unidad()])} (neto, sin IVA).` : 'Ej: bolsa × 25 kg → 25 · bidón de 5 litros → 5 · si ya se factura por kg → 1.';
+        $('#v-prev', m).innerHTML = f > 0 && unit ? `Precio comparable: <b>${$$m(unit / f)}</b> por ${esc(UNI[unidad()])} (neto, sin IVA). Así se compara con cualquier otro proveedor, venga en la presentación que venga.` : 'Ej: bolsa × 25 kg → 25 · bidón de 5 litros → 5 · si ya se factura por kg → 1.';
       };
       $$('#v-modo button', m).forEach(b => b.onclick = () => { modo = b.dataset.m; $$('#v-modo button', m).forEach(x => x.classList.toggle('on', x === b)); prev(); });
       $$('#v-u button', m).forEach(b => b.onclick = () => { uNuevo = b.dataset.u; $$('#v-u button', m).forEach(x => x.classList.toggle('on', x === b)); prev(); });
-      $('#v-ins', m).onchange = prev; $('#v-fac', m).oninput = prev; prev();
+      // Al cambiar de insumo (o de unidad del nuevo), si la unidad facturada es directa se completa sola
+      const reFactor = () => { const d = factorDirecto(g.unidad, unidad()); if (d) $('#v-fac', m).value = d; else if (g.unidad_base && g.unidad_base !== unidad()) $('#v-fac', m).value = ''; else if (g.contenido) $('#v-fac', m).value = g.contenido; prev(); };
+      $('#v-ins', m).onchange = reFactor; $('#v-fac', m).oninput = prev;
+      $$('#v-u button', m).forEach(b => b.addEventListener('click', reFactor));
+      $$('[data-irfac]', m).forEach(a => a.onclick = (e) => { e.preventDefault(); cerrar(); irFactura(a.dataset.irfac); });
+      prev();
       $('#v-ok', m).onclick = () => conBoton($('#v-ok', m), async () => {
         const body = { cuit: g.cuit, clave: g.clave, factor: Number($('#v-fac', m).value) };
         if (modo === 'nuevo') body.nuevo = { nombre: $('#v-nom', m).value, rubro: $('#v-rub', m).value, unidad: uNuevo };
@@ -847,7 +889,7 @@ async function vistaFacturas(el) {
         <td class="num">${f.n_renglones || '—'}${f.n_renglones ? `<small class="sub-celda">${f.n_vinculados === f.n_renglones ? 'todos vinculados' : `${f.n_renglones - f.n_vinculados} sin vincular`}</small>` : ''}</td>
         <td>${badgeLectura(f.lectura)}${f.lectura_motivo && f.lectura !== 'ok' ? `<small class="sub-celda motivo-rech">${esc(f.lectura_motivo)}</small>` : ''}</td></tr>`).join('')
       : `<tr><td colspan="6" class="vacio">${lectura || $('#q').value ? 'Nada coincide con el filtro.' : '<span class="grande">Todavía no hay facturas</span>Se traen solas de la app de facturas cada 10 minutos.'}</td></tr>`;
-    $$('#tb tr[data-id]').forEach(tr => tr.onclick = () => { location.hash = '#/factura/' + tr.dataset.id; });
+    $$('#tb tr[data-id]').forEach(tr => tr.onclick = () => irFactura(tr.dataset.id));
   };
   let t0; $('#q').oninput = () => { clearTimeout(t0); t0 = setTimeout(cargar, 300); };
   $$('#seg-l button').forEach(b => b.onclick = () => { lectura = b.dataset.l; sessionStorage.setItem('fac_lect', lectura); $$('#seg-l button').forEach(x => x.classList.toggle('on', x === b)); cargar(); });
@@ -858,13 +900,22 @@ async function vistaFacturas(el) {
 // ---------------------------------------------------------------------------
 //  Detalle de una factura: el PDF a la izquierda y los renglones leídos a la derecha
 // ---------------------------------------------------------------------------
+// Abrir una factura recordando de dónde se vino (para el botón "volver")
+function irFactura(id) {
+  try { sessionStorage.setItem('fac_volver', location.hash || '#/facturas'); } catch { }
+  location.hash = '#/factura/' + id;
+}
+const NOMBRE_VOLVER = (h) => /^#\/vincular/.test(h) ? 'Para vincular' : /^#\/insumo\//.test(h) ? 'Volver al insumo' : /^#\/alertas/.test(h) ? 'Alertas' : 'Facturas leídas';
+
 async function vistaFactura(el, id) {
   const d = await api('/api/facturas/' + id);
+  let volver = '#/facturas'; try { volver = sessionStorage.getItem('fac_volver') || '#/facturas'; } catch { }
+  if (/^#\/factura\//.test(volver)) volver = '#/facturas';
   const f = d.factura;
   const dif = f.neto && f.suma_renglones != null ? f.suma_renglones - f.neto : null;
   const prods = d.renglones.filter(r => !r.es_descuento);
   const descs = d.renglones.filter(r => r.es_descuento);
-  el.innerHTML = `<div class="encabezado" style="margin-bottom:16px"><div class="navfact"><a class="btn btn-ghost btn-chico" href="#/facturas">${ICO.back}Facturas leídas</a><span class="tag mono">#${f.id}</span></div></div>
+  el.innerHTML = `<div class="encabezado" style="margin-bottom:16px"><div class="navfact"><a class="btn btn-ghost btn-chico" href="${esc(volver)}">${ICO.back}${esc(NOMBRE_VOLVER(volver))}</a><span class="tag mono">#${f.id}</span></div></div>
   <div class="detalle">
     <div class="visor" id="visor"><div class="vacio"><span><span class="cargando"></span> Cargando la factura…</span></div></div>
     <div class="lado">
@@ -880,8 +931,8 @@ async function vistaFactura(el, id) {
         <div class="tabla-wrap"><table class="sin-orden tabla-ren"><thead><tr><th>Descripción</th><th class="num">Cantidad</th><th class="num">Precio unit.</th><th class="num">Importe</th></tr></thead><tbody>
         ${prods.length ? prods.map(r => `<tr class="${r.ignorado ? 'inactivo' : ''}">
           <td><span class="desc-fac">${esc(r.descripcion)}</span>${r.codigo ? `<small class="sub-celda mono">Cód. ${esc(r.codigo)}</small>` : ''}
-            <small class="sub-celda">${r.insumo_id ? `<a href="#/insumo/${r.insumo_id}">${esc(r.insumo)}</a> · trae ${fmtCant.format(r.factor || 0)} ${esc(UNI_C[r.insumo_unidad] || '')} · <b>${fmtP(r.precio_base, r.insumo_unidad)}</b>` : r.ignorado ? 'No es insumo' : '<a href="#/vincular">Sin vincular</a>'}</small></td>
-          <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(r.unidad || '')}</small></td>
+            <small class="sub-celda">${r.insumo_id ? `<a href="#/insumo/${r.insumo_id}">${esc(r.insumo)}</a> · ${esc(textoEquivale(r.unidad, r.factor, r.insumo_unidad))} · <b>${fmtP(r.precio_base, r.insumo_unidad)}</b>` : r.ignorado ? 'No es insumo' : `Sin vincular${puede('editor') ? ` · <button class="btn-link" data-vinc-ren="${r.id}">Vincular ahora</button>` : ''}`}</small></td>
+          <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(unidadFact(r.unidad))}</small></td>
           <td class="num">${$$m(r.precio_unitario)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}</td>
           <td class="num">${$$m(r.importe)}${r.desc_pct ? `<small class="sub-celda txt-pos">− ${dec(r.desc_pct)} % → ${$$m(r.importe * (1 - r.desc_pct / 100))}</small>` : ''}</td></tr>`).join('')
           : '<tr><td colspan="4" class="vacio">Sin renglones todavía.</td></tr>'}
@@ -894,6 +945,16 @@ async function vistaFactura(el, id) {
     const r = await api(`/api/facturas/${f.id}/releer`, { method: 'POST' });
     toast(`Leída de nuevo: ${r.renglones} renglón(es)`); router();
   });
+  // Vincular un renglón sin salir de la factura (con el PDF a la vista)
+  $$('[data-vinc-ren]', el).forEach(b => b.onclick = () => conBoton(b, async () => {
+    const ren = d.renglones.find(r => String(r.id) === b.dataset.vincRen);
+    const v = await api('/api/vincular');
+    S.rubros = S.rubros || [];
+    const g = v.grupos.find(x => x.cuit === ren.cuit && x.clave === ren.clave) || { cuit: ren.cuit, clave: ren.clave, proveedor: f.razon_social, descripcion: ren.descripcion, unidad: ren.unidad, n: 1,
+      precio_unitario: ren.precio_unitario, ult_unit_ars: ren.cantidad ? ren.importe_ars / ren.cantidad : null, contenido: ren.contenido, unidad_base: ren.unidad_base, nombre_sugerido: ren.nombre_sugerido };
+    g.factura_id = null;   // ya está en la factura
+    modalVincular(g, v.insumos, async () => { const h = location.hash; await vistaFactura(el, id); if (location.hash !== h) location.hash = h; });
+  }));
   cargarPdf(`/api/facturas/${f.id}/pdf`);
 }
 
