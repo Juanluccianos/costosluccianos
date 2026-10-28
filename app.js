@@ -798,7 +798,7 @@ async function vistaInsumo(el, id) {
         <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(unidadFact(r.unidad))}</small></td>
         <td class="small">${esc(textoEquivale(r.unidad, r.factor, u, r.descripcion))}</td>
         <td class="num">${r.moneda && r.moneda !== 'PES' ? esc(r.moneda) + ' ' : ''}${$$m(r.precio_unitario)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}${r.desc_pct ? `<small class="sub-celda txt-pos">desc. general ${dec(r.desc_pct)} %</small>` : ''}</td>
-        <td class="num"><b>${r.ignorado ? '<span class="muted">No cuenta</span>' : fmtP(r.precio_base, u)}</b></td>
+        <td class="num"><b>${r.ignorado ? '<span class="muted">No cuenta</span>' : r.alerta_lectura ? '<span class="txt-neg">⚠ No cuenta</span>' : fmtP(r.precio_base, u)}</b>${r.alerta_lectura ? `<small class="sub-celda txt-neg">${esc(r.alerta_lectura)}</small>` : ''}</td>
         <td>${puede('editor') ? `<button class="btn btn-chico" data-ren="${r.id}" title="Corregir">${ICO.pencil}</button>` : ''}</td></tr>`).join('')
         : '<tr><td colspan="8" class="vacio">Sin compras.</td></tr>'}</tbody></table></div></div>
     ${d.vinculos.length ? `<div class="panel"><div class="panel-titulo"><h2>Descripciones vinculadas</h2></div><div class="tabla-wrap"><table><thead><tr><th>Proveedor</th><th>Descripción</th><th>Equivale</th><th class="num">Compras</th></tr></thead><tbody>
