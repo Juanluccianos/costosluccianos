@@ -851,12 +851,41 @@ tr.fila-desc td { background: var(--pos-bg); }
 .combo-lista li.sel span { font-weight: 700; }
 .combo-lista li.vacio-combo { color: var(--muted); cursor: default; font-size: 13px; }
 
-/* Para vincular: selección de varias descripciones */
-.tabla-vinc .col-sel { width: 1%; padding-right: 0; text-align: center; }
-.tabla-vinc .col-sel input { width: 18px; height: 18px; margin: 0; cursor: pointer; vertical-align: middle; }
+/* Para vincular: selección de varias descripciones.
+   La casilla aparece al pasar el mouse (o siempre, mientras hay algo marcado) y en el encabezado del proveedor
+   el cuadradito con las iniciales se convierte en la casilla de "todas". */
+.tabla-vinc .vp-prod { display: flex; align-items: flex-start; gap: 10px; }
+.tabla-vinc .vp-prod > div { min-width: 0; }
+.ck { position: relative; flex: none; width: 34px; display: flex; justify-content: center; padding-top: 1px; cursor: pointer; }
+.ck input, .ck-av input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.ck .ck-box, .ck-av .ck-box { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--line-strong); background: var(--surface); display: grid; place-items: center; transition: background .12s, border-color .12s, opacity .12s; }
+.ck .ck-box::after, .ck-av .ck-box::after { content: ''; width: 9px; height: 5px; border: 2px solid var(--on-accent); border-top: 0; border-right: 0; transform: translateY(-1px) rotate(-45deg); opacity: 0; }
+.ck input:checked + .ck-box, .ck-av.on .ck-box { background: var(--accent); border-color: var(--accent); }
+.ck input:checked + .ck-box::after, .ck-av.on .ck-box::after { opacity: 1; }
+.ck-av.parcial .ck-box { background: var(--accent); border-color: var(--accent); }
+.ck-av.parcial .ck-box::after { width: 8px; height: 0; border-left: 0; border-bottom: 2px solid var(--on-accent); transform: none; opacity: 1; }
+.ck:hover .ck-box, .ck-av:hover .ck-box { border-color: var(--accent); }
+.ck input:focus-visible + .ck-box, .ck-av input:focus-visible + .ck-box { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Escondida hasta pasar el mouse por el renglón (o si ya hay algo marcado) */
+.tabla-vinc:not(.seleccionando) tr:not(:hover) .ck .ck-box { opacity: 0; }
+/* Encabezado del proveedor: iniciales ↔ casilla */
+.ck-av { position: relative; flex: none; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; border-radius: var(--r-sm); }
+.ck-av .cuad, .prov .ck-av .cuad { display: grid; grid-area: 1 / 1; transition: opacity .12s; }
+.ck-av .ck-box { grid-area: 1 / 1; opacity: 0; }
+.tabla-vinc tr.grupo-vinc:hover .ck-av .cuad, .tabla-vinc.seleccionando .ck-av .cuad, .ck-av.on .cuad, .ck-av.parcial .cuad { opacity: 0; }
+.tabla-vinc tr.grupo-vinc:hover .ck-av .ck-box, .tabla-vinc.seleccionando .ck-av .ck-box, .ck-av.on .ck-box, .ck-av.parcial .ck-box { opacity: 1; }
 .tabla-vinc tr.sel td { background: var(--accent-soft); }
 .tabla-vinc tr.sel:hover td { background: var(--accent-soft); }
-.barra-sel { position: sticky; top: calc(var(--top-h) + 8px); z-index: 20; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; margin: 0 0 10px; background: var(--accent-soft); color: var(--text); border: 1px solid var(--accent); border-radius: var(--r-md); box-shadow: var(--sh-1); }
+.barra-sel { position: sticky; top: calc(var(--top-h) + 8px); z-index: 20; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 8px 8px 16px; margin: 0 0 12px; background: var(--ink); color: var(--paper); border-radius: var(--r-md); box-shadow: var(--sh-2); }
 .barra-sel[hidden] { display: none; }
-.barra-sel span { font-weight: 600; margin-right: auto; }
+.barra-sel #sel-n { font-weight: 600; margin-right: auto; }
 .barra-sel .btn { margin: 0; }
+.barra-sel .btn:not(.btn-rojo) { background: transparent; color: var(--paper); border-color: color-mix(in srgb, var(--paper) 30%, transparent); }
+.barra-sel .btn:not(.btn-rojo):hover:not(:disabled) { background: color-mix(in srgb, var(--paper) 12%, transparent); }
+.barra-sel .btn-rojo { background: var(--neg); border-color: var(--neg); color: #fff; }
+.barra-sel .btn-rojo:hover:not(:disabled) { background: color-mix(in srgb, var(--neg) 85%, #000); border-color: var(--neg); }
+@media (hover: none), (max-width: 720px) {
+  .tabla-vinc:not(.seleccionando) tr:not(:hover) .ck .ck-box { opacity: 1; }
+  .ck-av .cuad { opacity: 0 !important; } .ck-av .ck-box { opacity: 1 !important; }
+  .prov .ck-av { display: grid; }
+}

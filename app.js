@@ -867,7 +867,7 @@ async function vistaVincular(el) {
     <div class="panel"><div class="cola-bar"><label class="campo-buscar">${ICO.search}<input id="q" placeholder="Descripción o proveedor"></label>
       <select id="f-prov" style="max-width:260px"><option value="">Todos los proveedores</option>${provs.map(p => `<option>${esc(p)}</option>`).join('')}</select></div>
       ${ed ? `<div class="barra-sel" id="barra-sel" hidden><span id="sel-n"></span><button class="btn btn-chico" id="sel-limpiar">Desmarcar</button><button class="btn btn-rojo btn-chico" id="sel-ign">${ICO.x}No son insumos</button></div>` : ''}
-      <div class="tabla-wrap"><table class="sin-orden tabla-vinc${ed ? ' con-sel' : ''}"><thead><tr>${ed ? '<th class="col-sel"></th>' : ''}<th>Producto en la factura</th><th class="num">Precio facturado</th><th>Es el insumo…</th><th class="num">Precio comparable</th><th></th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
+      <div class="tabla-wrap"><table class="sin-orden tabla-vinc${ed ? ' con-sel' : ''}" id="t-vinc"><thead><tr><th>Producto en la factura</th><th class="num">Precio facturado</th><th>Es el insumo…</th><th class="num">Precio comparable</th><th></th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
   const sugerencia = (g) => {
     const ins = g.sugerido_insumo_id ? insPorId.get(g.sugerido_insumo_id) : null;
     const nombre = ins ? ins.nombre : g.nombre_sugerido;
@@ -888,16 +888,17 @@ async function vistaVincular(el) {
       const ref = s?.ins ? insPorId.get(s.ins.id)?.ult_precio : null;
       const raro = pc && ref && (pc / ref > 2 || pc / ref < 0.5);
       return `<tr class="click fila-vinc${sel.has(k) ? ' sel' : ''}" data-fac="${g.factura_id}" title="Tocá para ver la factura">
-        ${ed ? `<td class="col-sel"><input type="checkbox" data-sel="${k}" ${sel.has(k) ? 'checked' : ''} aria-label="Marcar"></td>` : ''}<td><div class="vp-desc">${esc(g.descripcion)}</div>
-          <div class="vp-meta">${g.codigo ? `Cód. ${esc(g.codigo)} · ` : ''}${g.n} compra${g.n > 1 ? 's' : ''} · última ${fmtF(g.ultima_fecha)} · <a href="#/factura/${g.factura_id}" data-irfac="${g.factura_id}">ver factura</a></div></td>
+        <td><div class="vp-prod">${ed ? `<label class="ck" title="Marcar"><input type="checkbox" data-sel="${k}" ${sel.has(k) ? 'checked' : ''} aria-label="Marcar"><span class="ck-box"></span></label>` : ''}<div><div class="vp-desc">${esc(g.descripcion)}</div>
+          <div class="vp-meta">${g.codigo ? `Cód. ${esc(g.codigo)} · ` : ''}${g.n} compra${g.n > 1 ? 's' : ''} · última ${fmtF(g.ultima_fecha)} · <a href="#/factura/${g.factura_id}" data-irfac="${g.factura_id}">ver factura</a></div></div></div></td>
         <td class="num"><b>${g.moneda && g.moneda !== 'PES' ? esc(g.moneda) + ' ' : ''}${$$m(g.precio_unitario)}</b><div class="vp-meta">por ${esc(s ? unidadMostrar(g.unidad, s.factor, s.u, g.descripcion) : unidadFact(g.unidad))}</div></td>
         <td>${s ? `<div class="vp-ins">${esc(s.nombre)}${s.nuevo ? '<span class="vp-nuevo">nuevo</span>' : ''}</div><div class="vp-meta">${esc(textoEquivale(g.unidad, s.factor, s.u, g.descripcion))}</div>` : '<span class="vp-meta">Sin sugerencia</span>'}</td>
         <td class="num">${pc ? `<b>${fmtP(pc, s.u)}</b>${raro ? `<div class="vp-meta txt-neg">⚠ el último fue ${fmtP(ref, s.u)}: revisá la equivalencia</div>` : ''}` : '<span class="vp-meta">—</span>'}</td>
         <td class="acc-vinc"><div class="acc-in">${puede('editor') ? `${s && s.factor && !raro ? `<button class="btn btn-acento btn-chico" data-ok="${k}">${ICO.check}Confirmar</button>` : ''}<button class="btn btn-chico" data-v="${k}">${s && s.factor ? 'Cambiar' : 'Vincular'}</button><button class="ibtn ib-x" data-ign="${k}" title="No es insumo (flete, servicio, descuento…)" aria-label="No es insumo">${ICO.x}</button>` : ''}</div></td></tr>`;
     };
-    const nCol = ed ? 6 : 5;
+    const nCol = 5;
     const idxs = (p) => p.items.map(g => r.grupos.indexOf(g));
-    $('#tb').innerHTML = lista.length ? [...porProv.values()].sort((a, b) => b.total - a.total).map(p => `<tr class="grupo-vinc">${ed ? `<td class="col-sel"><input type="checkbox" data-selprov="${esc(p.cuit)}" ${idxs(p).every(k => sel.has(k)) ? 'checked' : ''} title="Marcar todas las de este proveedor" aria-label="Marcar todas las de este proveedor"></td>` : ''}<td colspan="${nCol - (ed ? 1 : 0)}"><div class="prov">${cuad(p.proveedor)}<div><b>${esc(p.proveedor)}</b><small class="mono">${fmtCuit(p.cuit)} · ${p.items.length > 1 ? p.items.length + ' descripciones' : '1 descripción'}</small></div></div></td></tr>${p.items.map(fila).join('')}`).join('')
+    $('#tb').innerHTML = lista.length ? [...porProv.values()].sort((a, b) => b.total - a.total).map(p => { const todas = idxs(p).every(k => sel.has(k)), algunas = !todas && idxs(p).some(k => sel.has(k));
+      return `<tr class="grupo-vinc${todas ? ' sel' : ''}"><td colspan="${nCol}"><div class="prov">${ed ? `<label class="ck-av${todas ? ' on' : algunas ? ' parcial' : ''}" title="Marcar todas las de este proveedor">${cuad(p.proveedor)}<input type="checkbox" data-selprov="${esc(p.cuit)}" ${todas ? 'checked' : ''} aria-label="Marcar todas las de este proveedor"><span class="ck-box"></span></label>` : cuad(p.proveedor)}<div><b>${esc(p.proveedor)}</b><small class="mono">${fmtCuit(p.cuit)} · ${p.items.length > 1 ? p.items.length + ' descripciones' : '1 descripción'}</small></div></div></td></tr>${p.items.map(fila).join('')}`; }).join('')
       : `<tr><td colspan="${nCol}" class="vacio">${r.grupos.length ? 'Nada coincide con el filtro.' : '<span class="grande">Todo vinculado</span>Cada descripción de las facturas ya tiene su insumo.'}</td></tr>`;
     const barra = () => {
       if (!ed) return;
@@ -906,7 +907,8 @@ async function vistaVincular(el) {
     };
     $$('#tb [data-sel]').forEach(c => c.onchange = () => { const k = Number(c.dataset.sel); c.checked ? sel.add(k) : sel.delete(k); pintar(); });
     $$('#tb [data-selprov]').forEach(c => c.onchange = () => { const p = porProv.get(c.dataset.selprov); idxs(p).forEach(k => c.checked ? sel.add(k) : sel.delete(k)); pintar(); });
-    $$('#tb .col-sel').forEach(td => td.onclick = (e) => e.stopPropagation());
+    $$('#tb .ck, #tb .ck-av').forEach(l => l.onclick = (e) => e.stopPropagation());
+    $('#t-vinc').classList.toggle('seleccionando', sel.size > 0);
     barra();
     $$('#tb tr[data-fac]').forEach(tr => tr.onclick = (e) => { if (e.target.closest('button')) return; e.preventDefault(); irFactura(tr.dataset.fac); });
     $$('#tb [data-irfac]').forEach(a => a.onclick = (e) => { e.preventDefault(); e.stopPropagation(); irFactura(a.dataset.irfac); });
