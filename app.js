@@ -387,6 +387,7 @@ const RUTAS = [
   { re: /^#\/insumo\/(\d+)$/, v: vistaInsumo, nav: 'insumos', miga: 'Seguimiento / <a href="#/insumos">Insumos</a> / <b>Insumo</b>' },
   { re: /^#\/vincular$/, v: vistaVincular, nav: 'vincular', miga: 'Trabajo / <b>Para vincular</b>' },
   { re: /^#\/facturas$/, v: vistaFacturas, nav: 'facturas', miga: 'Trabajo / <b>Facturas leídas</b>' },
+  { re: /^#\/factura\/(\d+)$/, v: vistaFactura, nav: 'facturas', miga: 'Trabajo / <a href="#/facturas">Facturas leídas</a> / <b>Factura</b>' },
   { re: /^#\/admin$/, v: vistaAdmin, nav: 'admin', miga: 'Datos / <b>Configuración</b>' },
   { re: /^#\/guia$/, v: vistaGuia, nav: 'guia', miga: '<b>Guía de uso</b>' },
   { re: /^#\/cuenta$/, v: vistaMiCuenta, nav: '', miga: '<b>Mi cuenta</b>' },
@@ -444,6 +445,7 @@ function pintarContadores(c) { $$('[data-cnt]').forEach(x => { const n = c[x.dat
 
 async function router() {
   if (!S.token) return vistaLogin();
+  if (S.pdfUrl) { URL.revokeObjectURL(S.pdfUrl); S.pdfUrl = null; S.pdfBytes = null; }
   const h = location.hash || '#/inicio';
   const r = RUTAS.find(x => x.re.test(h)) || RUTAS[0];
   const m = h.match(r.re) || [];
@@ -682,7 +684,7 @@ async function vistaInsumo(el, id) {
         <td class="desc-fac">${esc(r.descripcion)}</td>
         <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(r.unidad || '')}</small></td>
         <td class="num">${r.factor ? fmtCant.format(r.factor) + ' ' + esc(UNI_C[u]) : '—'}</td>
-        <td class="num">${r.moneda && r.moneda !== 'PES' ? esc(r.moneda) + ' ' : ''}${$$m(r.precio_unitario)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}</td>
+        <td class="num">${r.moneda && r.moneda !== 'PES' ? esc(r.moneda) + ' ' : ''}${$$m(r.precio_unitario)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}${r.desc_pct ? `<small class="sub-celda txt-pos">desc. general ${dec(r.desc_pct)} %</small>` : ''}</td>
         <td class="num"><b>${r.ignorado ? '<span class="muted">No cuenta</span>' : fmtP(r.precio_base, u)}</b></td>
         <td>${puede('editor') ? `<button class="btn btn-chico" data-ren="${r.id}" title="Corregir">${ICO.pencil}</button>` : ''}</td></tr>`).join('')
         : '<tr><td colspan="8" class="vacio">Sin compras.</td></tr>'}</tbody></table></div></div>
@@ -690,7 +692,7 @@ async function vistaInsumo(el, id) {
       ${d.vinculos.map(v => `<tr><td>${esc(v.proveedor || fmtCuit(v.cuit))}</td><td class="desc-fac">${esc(v.descripcion || v.clave)}</td><td class="num">${v.factor ? fmtCant.format(v.factor) + ' ' + esc(UNI_C[u]) : '—'}</td><td class="num">${v.usos}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
 
   graficoPrecios($('#graf'), $('#leyenda'), d.compras, u);
-  $$('[data-fac]', el).forEach(a => a.onclick = (e) => { e.preventDefault(); modalFactura(Number(a.dataset.fac)); });
+  $$('[data-fac]', el).forEach(a => a.onclick = (e) => { e.preventDefault(); location.hash = '#/factura/' + a.dataset.fac; });
   $('#b-csv').onclick = () => descargarCsv(`${normQ(i.nombre).replace(/[^a-z0-9]+/g, '_')}_compras.csv`, [
     ['Fecha', 'Proveedor', 'Factura', 'Descripción', 'Cantidad', 'Unidad', 'Trae', 'Precio unitario', 'Moneda', 'Importe ARS', `Precio por ${UNI_C[u]}`],
     ...d.renglones.map(r => [r.fecha || '', r.proveedor || '', `${TIPOS[r.tipo] || ''} ${nroCbte(r)}`, r.descripcion, dec(r.cantidad), r.unidad || '', dec(r.factor), dec(r.precio_unitario), r.moneda || 'PES', dec(r.importe_ars), r.ignorado ? '' : dec(r.precio_base)]),
@@ -841,11 +843,11 @@ async function vistaFacturas(el) {
     $('#tb').innerHTML = r.facturas.length ? r.facturas.map(f => `<tr class="click" data-id="${f.id}">
         <td><div class="prov">${cuad(f.razon_social)}<div><b>${esc(f.razon_social || 'Sin identificar')}</b><small class="mono">${fmtCuit(f.cuit)} · #${f.id}</small></div></div></td>
         <td class="mono">${esc(TIPOS[f.tipo] || '')} ${nroCbte(f)}</td><td class="mono">${fmtF(f.fecha)}</td>
-        <td class="num">${f.moneda && f.moneda !== 'PES' ? esc(f.moneda) + ' ' : ''}${$$m(f.neto)}</td>
+        <td class="num">${f.moneda && f.moneda !== 'PES' ? esc(f.moneda) + ' ' : ''}${$$m(f.neto)}${f.descuento_pct ? `<small class="sub-celda txt-pos">bonif. general ${dec(f.descuento_pct)} %</small>` : ''}</td>
         <td class="num">${f.n_renglones || '—'}${f.n_renglones ? `<small class="sub-celda">${f.n_vinculados === f.n_renglones ? 'todos vinculados' : `${f.n_renglones - f.n_vinculados} sin vincular`}</small>` : ''}</td>
         <td>${badgeLectura(f.lectura)}${f.lectura_motivo && f.lectura !== 'ok' ? `<small class="sub-celda motivo-rech">${esc(f.lectura_motivo)}</small>` : ''}</td></tr>`).join('')
       : `<tr><td colspan="6" class="vacio">${lectura || $('#q').value ? 'Nada coincide con el filtro.' : '<span class="grande">Todavía no hay facturas</span>Se traen solas de la app de facturas cada 10 minutos.'}</td></tr>`;
-    $$('#tb tr[data-id]').forEach(tr => tr.onclick = () => modalFactura(Number(tr.dataset.id), cargar));
+    $$('#tb tr[data-id]').forEach(tr => tr.onclick = () => { location.hash = '#/factura/' + tr.dataset.id; });
   };
   let t0; $('#q').oninput = () => { clearTimeout(t0); t0 = setTimeout(cargar, 300); };
   $$('#seg-l button').forEach(b => b.onclick = () => { lectura = b.dataset.l; sessionStorage.setItem('fac_lect', lectura); $$('#seg-l button').forEach(x => x.classList.toggle('on', x === b)); cargar(); });
@@ -853,37 +855,124 @@ async function vistaFacturas(el) {
   await cargar();
 }
 
-async function modalFactura(id, alCambiar) {
-  const d = await api('/api/facturas/' + id).catch(e => { toast(e.message, true); return null; });
-  if (!d) return;
+// ---------------------------------------------------------------------------
+//  Detalle de una factura: el PDF a la izquierda y los renglones leídos a la derecha
+// ---------------------------------------------------------------------------
+async function vistaFactura(el, id) {
+  const d = await api('/api/facturas/' + id);
   const f = d.factura;
   const dif = f.neto && f.suma_renglones != null ? f.suma_renglones - f.neto : null;
-  modal(`<div class="mf-h"><div><h2>${esc(f.razon_social || 'Factura')}</h2><p class="muted">${esc(TIPOS[f.tipo] || '')} ${nroCbte(f)} · ${fmtF(f.fecha)} · #${f.id}${f.cuenta ? ` · cuenta ${f.cuenta} ${esc(f.cuenta_den || '')}` : ''}</p></div>${badgeLectura(f.lectura)}</div>
-    ${f.lectura_motivo ? `<p class="aviso-lectura">${esc(f.lectura_motivo)}</p>` : ''}
-    <div class="tabla-wrap tabla-scroll" style="max-height:55vh"><table class="sin-orden"><thead><tr><th>Descripción</th><th class="num">Cantidad</th><th class="num">Precio unit.</th><th class="num">Importe</th><th>Insumo</th><th class="num">Por unidad base</th></tr></thead><tbody>
-    ${d.renglones.length ? d.renglones.map(r => `<tr class="${r.ignorado ? 'inactivo' : ''}"><td class="desc-fac">${esc(r.descripcion)}${r.codigo ? `<small class="sub-celda mono">Cód. ${esc(r.codigo)}</small>` : ''}</td>
-      <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(r.unidad || '')}</small></td><td class="num">${$$m(r.precio_unitario)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}</td><td class="num">${$$m(r.importe)}</td>
-      <td>${r.insumo_id ? `<a href="#/insumo/${r.insumo_id}" data-cerrar>${esc(r.insumo)}</a><small class="sub-celda">trae ${fmtCant.format(r.factor || 0)} ${esc(UNI_C[r.insumo_unidad] || '')}</small>` : r.ignorado ? '<span class="muted small">No es insumo</span>' : '<a href="#/vincular" data-cerrar class="small">Sin vincular</a>'}</td>
-      <td class="num">${r.precio_base ? fmtP(r.precio_base, r.insumo_unidad) : '—'}</td></tr>`).join('') : '<tr><td colspan="6" class="vacio">Sin renglones.</td></tr>'}
-    </tbody></table></div>
-    <div class="cuadre-fac"><span>Suma de renglones <b>${$$m(f.suma_renglones)}</b></span><span>Neto de la factura <b>${$$m(f.neto)}</b></span>${dif !== null ? `<span class="${Math.abs(dif) > 1 ? 'txt-neg' : 'txt-pos'}">Diferencia <b>${$$m(dif)}</b></span>` : ''}</div>
-    <div class="acciones" style="margin-top:14px"><button class="btn" id="mf-pdf">${ICO.doc}Ver factura</button>${puede('editor') && f.es_mp && !['espera', 'descartada', 'pendiente', 'leyendo'].includes(f.lectura) ? `<button class="btn btn-negro" id="mf-re">${ICO.sparkle}Volver a leer</button>` : ''}</div>`, {
-    ancho: true,
-    alMontar: (m, cerrar) => {
-      $$('[data-cerrar]', m).forEach(a => a.addEventListener('click', cerrar));
-      $('#mf-pdf', m).onclick = () => conBoton($('#mf-pdf', m), async () => {
-        const res = await api(`/api/facturas/${f.id}/pdf`, { raw: true });
-        const url = URL.createObjectURL(await res.blob());
-        window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 60000);
-      });
-      const br = $('#mf-re', m); if (br) br.onclick = () => conBoton(br, async () => {
-        const r = await api(`/api/facturas/${f.id}/releer`, { method: 'POST' });
-        toast(`Leída de nuevo: ${r.renglones} renglón(es)`); cerrar(); modalFactura(f.id, alCambiar); alCambiar && alCambiar();
-      });
-    },
+  const prods = d.renglones.filter(r => !r.es_descuento);
+  const descs = d.renglones.filter(r => r.es_descuento);
+  el.innerHTML = `<div class="encabezado" style="margin-bottom:16px"><div class="navfact"><a class="btn btn-ghost btn-chico" href="#/facturas">${ICO.back}Facturas leídas</a><span class="tag mono">#${f.id}</span></div></div>
+  <div class="detalle">
+    <div class="visor" id="visor"><div class="vacio"><span><span class="cargando"></span> Cargando la factura…</span></div></div>
+    <div class="lado">
+      <section class="panel panel-pad ficha-fac">
+        <div class="mf-h"><div><h2>${esc(f.razon_social || 'Factura')}</h2><p class="muted small">${fmtCuit(f.cuit)} · ${esc(TIPOS[f.tipo] || '')} ${nroCbte(f)} · ${fmtF(f.fecha)}${f.cuenta ? ` · cuenta ${f.cuenta} ${esc(f.cuenta_den || '')}` : ''}</p></div>${badgeLectura(f.lectura)}</div>
+        ${f.lectura_motivo ? `<p class="aviso-lectura">${esc(f.lectura_motivo)}</p>` : ''}
+        ${f.descuento_pct ? `<div class="aviso-desc">${ICO.check}<div><b>Bonificación general del ${dec(f.descuento_pct)} %</b> (${$$m(f.descuento_importe)}) sobre los productos. Ya está descontada en el precio de cada insumo de esta factura.</div></div>` : ''}
+        <div class="cuadre-fac"><span>Suma de renglones <b>${$$m(f.suma_renglones)}</b></span><span>Neto de la factura <b>${$$m(f.neto)}</b></span>${dif !== null ? `<span class="${Math.abs(dif) > 1 ? 'txt-neg' : 'txt-pos'}">Diferencia <b>${$$m(dif)}</b></span>` : ''}</div>
+        ${puede('editor') && !['espera', 'pendiente', 'leyendo'].includes(f.lectura) ? `<div class="acciones" style="margin-top:12px"><button class="btn btn-negro" id="mf-re">${ICO.sparkle}Volver a leer</button></div>` : ''}
+      </section>
+      <section class="panel">
+        <div class="panel-titulo"><h2>Renglones leídos</h2><span class="small muted">${prods.length} renglón(es)</span></div>
+        <div class="tabla-wrap"><table class="sin-orden tabla-ren"><thead><tr><th>Descripción</th><th class="num">Cantidad</th><th class="num">Precio unit.</th><th class="num">Importe</th></tr></thead><tbody>
+        ${prods.length ? prods.map(r => `<tr class="${r.ignorado ? 'inactivo' : ''}">
+          <td><span class="desc-fac">${esc(r.descripcion)}</span>${r.codigo ? `<small class="sub-celda mono">Cód. ${esc(r.codigo)}</small>` : ''}
+            <small class="sub-celda">${r.insumo_id ? `<a href="#/insumo/${r.insumo_id}">${esc(r.insumo)}</a> · trae ${fmtCant.format(r.factor || 0)} ${esc(UNI_C[r.insumo_unidad] || '')} · <b>${fmtP(r.precio_base, r.insumo_unidad)}</b>` : r.ignorado ? 'No es insumo' : '<a href="#/vincular">Sin vincular</a>'}</small></td>
+          <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(r.unidad || '')}</small></td>
+          <td class="num">${$$m(r.precio_unitario)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}</td>
+          <td class="num">${$$m(r.importe)}${r.desc_pct ? `<small class="sub-celda txt-pos">− ${dec(r.desc_pct)} % → ${$$m(r.importe * (1 - r.desc_pct / 100))}</small>` : ''}</td></tr>`).join('')
+          : '<tr><td colspan="4" class="vacio">Sin renglones todavía.</td></tr>'}
+        ${descs.map(r => `<tr class="fila-desc"><td><span class="desc-fac">${esc(r.descripcion)}</span><small class="sub-celda">Bonificación: se prorratea en los productos</small></td><td></td><td></td><td class="num txt-pos">− ${$$m(Math.abs(r.importe || 0))}</td></tr>`).join('')}
+        </tbody></table></div>
+      </section>
+    </div>
+  </div>`;
+  const br = $('#mf-re'); if (br) br.onclick = () => conBoton(br, async () => {
+    const r = await api(`/api/facturas/${f.id}/releer`, { method: 'POST' });
+    toast(`Leída de nuevo: ${r.renglones} renglón(es)`); router();
   });
+  cargarPdf(`/api/facturas/${f.id}/pdf`);
 }
 
+// ---- Visor del PDF (el mismo de la app de facturas) ----
+const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+let _pdfjsCarga = null;
+function cargarPdfjs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (!_pdfjsCarga) _pdfjsCarga = new Promise((ok, mal) => {
+    const sc = document.createElement('script');
+    sc.src = PDFJS + 'pdf.min.js';
+    sc.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js'; ok(window.pdfjsLib); };
+    sc.onerror = () => { _pdfjsCarga = null; mal(new Error('no cargó pdf.js')); };
+    document.head.appendChild(sc);
+  });
+  return _pdfjsCarga;
+}
+async function cargarPdf(ruta) {
+  if (!$('#visor')) return;
+  try {
+    const res = await api(ruta, { raw: true });
+    const blob = await res.blob();
+    if (S.pdfUrl) URL.revokeObjectURL(S.pdfUrl);
+    S.pdfUrl = URL.createObjectURL(blob);
+    if (/^image\//.test(blob.type)) {   // facturas que llegaron como foto
+      $('#visor').innerHTML = `<div class="pdf-barra"><span class="small" style="color:#d6d4cf">Foto de la factura</span><span style="flex:1"></span><a class="ibtn" href="${S.pdfUrl}" target="_blank" rel="noopener" title="Abrir en pestaña nueva">${svgI('<path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>')}</a></div><div class="pdf-paginas"><img src="${S.pdfUrl}" alt="Factura" class="visor-img"></div>`;
+      return;
+    }
+    S.pdfBytes = new Uint8Array(await blob.arrayBuffer());
+    await mostrarPdf();
+  } catch (e) {
+    if ($('#visor')) $('#visor').innerHTML = `<div class="vacio" style="color:#d6d4cf">No se pudo cargar la factura: ${esc(e.message)}</div>`;
+  }
+}
+async function mostrarPdf() {
+  const visor = $('#visor');
+  if (!visor || !S.pdfUrl) return;
+  S.pdfZoom = S.pdfZoom || 1;
+  visor.innerHTML = `<div class="pdf-barra">
+      <button class="ibtn" data-z="-" title="Alejar" aria-label="Alejar">${svgI('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M8 11h6"/>')}</button>
+      <span class="pdf-zoom">${Math.round(S.pdfZoom * 100)}%</span>
+      <button class="ibtn" data-z="+" title="Acercar" aria-label="Acercar">${svgI('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/>')}</button>
+      <button class="ibtn" data-z="1" title="Ajustar al ancho" aria-label="Ajustar al ancho">${svgI('<path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4"/>')}</button>
+      <span style="flex:1"></span>
+      <a class="ibtn" href="${S.pdfUrl}" target="_blank" rel="noopener" title="Abrir en pestaña nueva" aria-label="Abrir en pestaña nueva">${svgI('<path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>')}</a>
+      <a class="ibtn" href="${S.pdfUrl}" download="factura.pdf" title="Descargar" aria-label="Descargar">${svgI('<path d="M12 3v12M8 11l4 4 4-4M4 21h16"/>')}</a>
+    </div><div class="pdf-paginas" id="pdf-paginas"><div class="vacio"><span><span class="cargando"></span> Abriendo PDF…</span></div></div>`;
+  $$('[data-z]', visor).forEach(b => b.onclick = () => {
+    S.pdfZoom = b.dataset.z === '1' ? 1 : Math.min(3, Math.max(0.5, S.pdfZoom + (b.dataset.z === '+' ? 0.25 : -0.25)));
+    mostrarPdf();
+  });
+  const cont = $('#pdf-paginas', visor);
+  let pdfjs;
+  try { pdfjs = await cargarPdfjs(); }
+  catch { cont.innerHTML = `<iframe src="${S.pdfUrl}#view=FitH&navpanes=0" title="PDF de la factura"></iframe>`; cont.classList.add('con-iframe'); return; }
+  try {
+    const doc = await pdfjs.getDocument({ data: S.pdfBytes.slice() }).promise;
+    if (!cont.isConnected) return;
+    cont.innerHTML = '';
+    const ancho = Math.max(280, cont.clientWidth - 24) * S.pdfZoom;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    for (let n = 1; n <= doc.numPages; n++) {
+      const pag = await doc.getPage(n);
+      const base = pag.getViewport({ scale: 1 });
+      const vp = pag.getViewport({ scale: (ancho / base.width) * dpr });
+      const cv = document.createElement('canvas');
+      cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
+      cv.style.width = Math.floor(vp.width / dpr) + 'px';
+      cv.title = 'Doble clic: abrir en pestaña nueva';
+      cv.ondblclick = () => window.open(S.pdfUrl, '_blank', 'noopener');
+      if (!cont.isConnected) return;
+      cont.appendChild(cv);
+      await pag.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+    }
+    if (doc.numPages > 1) cont.insertAdjacentHTML('beforeend', `<div class="pdf-pie">${doc.numPages} páginas</div>`);
+  } catch (e) {
+    cont.innerHTML = `<iframe src="${S.pdfUrl}#view=FitH&navpanes=0" title="PDF de la factura"></iframe>`; cont.classList.add('con-iframe');
+  }
+}
 
 // ---------------------------------------------------------------------------
 //  Gráfico de precios (SVG propio): una línea por proveedor, eje de tiempo real,
@@ -1043,7 +1132,7 @@ async function vistaGuia(el) {
         <li><b>Cuánto trae</b>: lleva el precio a $ por kg, litro o unidad. Bolsa × 25 kg → 25. Si ya se factura por kg → 1.</li>
         <li><b>No es insumo</b>: fletes, servicios, descuentos. Se ignoran.</li></ul>
       <h2>Los precios</h2>
-      <p>Todos los precios son <b>netos, sin IVA</b>, en pesos (las facturas en dólares se pasan con la cotización de la factura) y con la bonificación ya descontada.</p>
+      <p>Todos los precios son <b>netos, sin IVA</b>, en pesos (las facturas en dólares se pasan con la cotización de la factura) y con las bonificaciones ya descontadas: la de cada renglón y también la <b>bonificación general al pie</b> (por ejemplo, “Bonificación 20 %” sobre el total), que se reparte entre los productos de la factura. Las facturas con bonificación general lo muestran en verde.</p>
       <ul><li><b>vs. anterior</b>: contra la compra anterior <b>al mismo proveedor</b>.</li>
         <li><b>vs. promedio</b>: contra el promedio ponderado por cantidad del período (todos los proveedores).</li></ul>
       <h2>Alertas</h2>

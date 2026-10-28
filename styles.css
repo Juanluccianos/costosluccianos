@@ -808,3 +808,12 @@ tr.vista td { opacity: .7; }
 .al-ico.al-mas_caro, .al-ico.al-sobre_promedio { background: var(--warn-bg); color: var(--warn); }
 .feed .t.t-multi { white-space: normal; overflow: visible; text-overflow: clip; }
 .mf-h { padding-right: 34px; }
+.ficha-fac h2 { font-size: 20px; }
+.aviso-desc { display: flex; gap: 10px; align-items: flex-start; background: var(--pos-bg); color: var(--pos); border-radius: var(--r-md); padding: 10px 12px; font-size: 13px; margin: 0 0 12px; }
+.aviso-desc .i { width: 16px; height: 16px; flex: none; margin-top: 2px; }
+.aviso-desc b { color: inherit; }
+.tabla-ren td { vertical-align: top; }
+.tabla-ren .sub-celda a { color: var(--accent-ink); }
+tr.fila-desc td { background: var(--pos-bg); }
+.ficha-fac .cuadre-fac { justify-content: flex-start; }
+.tabla-ren td.num .sub-celda { white-space: nowrap; }
