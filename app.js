@@ -984,7 +984,7 @@ async function vistaFactura(el, id) {
         ${prods.length ? prods.map(r => `<tr class="${r.ignorado ? 'inactivo' : ''}">
           <td><span class="desc-fac">${esc(r.descripcion)}</span>${r.codigo ? `<small class="sub-celda mono">Cód. ${esc(r.codigo)}</small>` : ''}
             <small class="sub-celda">${r.insumo_id ? `<a href="#/insumo/${r.insumo_id}">${esc(r.insumo)}</a> · ${esc(textoEquivale(r.unidad, r.factor, r.insumo_unidad, r.descripcion))} · <b>${fmtP(r.precio_base, r.insumo_unidad)}</b>` : r.ignorado ? 'No es insumo' : `Sin vincular${puede('editor') ? ` · <button class="btn-link" data-vinc-ren="${r.id}">Vincular ahora</button>` : ''}`}</small></td>
-          <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(unidadFact(r.unidad))}</small></td>
+          <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(unidadMostrar(r.unidad, r.factor || contenidoEnDescripcion(r.descripcion, 'un') || contenidoEnDescripcion(r.descripcion, 'kg') || contenidoEnDescripcion(r.descripcion, 'l') || r.contenido, null, r.descripcion))}</small></td>
           <td class="num">${$$m(r.precio_unitario)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}</td>
           <td class="num">${$$m(r.importe)}${r.desc_pct ? `<small class="sub-celda txt-pos">− ${dec(r.desc_pct)} % → ${$$m(r.importe * (1 - r.desc_pct / 100))}</small>` : ''}</td></tr>`).join('')
           : '<tr><td colspan="4" class="vacio">Sin renglones todavía.</td></tr>'}
