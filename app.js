@@ -1331,34 +1331,60 @@ async function adminSalud(el) {
 // ---------------------------------------------------------------------------
 //  Guía de uso
 // ---------------------------------------------------------------------------
+const PASOS_GUIA_C = [
+  ['doc', 'Llegan las facturas', 'Cada 10 minutos la app trae de Facturas de proveedores las facturas de materia prima ya confirmadas (listas o cargadas en Shares).'],
+  ['sparkle', 'Se leen los renglones', 'Gemini lee cada renglón: descripción, cantidad, unidad, precio, bonificación e importe. Todo neto, sin IVA.'],
+  ['link', 'Vinculás una vez', 'La primera vez que aparece una descripción de un proveedor decís qué insumo es y cuánto trae. Después se reconoce sola.'],
+  ['chart', 'Precio y alertas', 'Cada compra queda como $ por kg, litro o unidad. Si un proveedor sube, se paga más que el promedio u otro vende más barato, hay alerta.'],
+  ['balanza', 'Contra Shares', 'Una vez por día se traen las recetas de Shares. Cada insumo unido compara el costo que usa Shares con lo que realmente se pagó.'],
+];
 async function vistaGuia(el) {
-  el.innerHTML = `<div class="encabezado"><div><h1>Guía de uso</h1><p>Cómo funciona y qué hay que hacer.</p></div></div>
-    <div class="panel panel-pad guia-txt" style="max-width:820px">
-      <h2>De dónde salen los precios</h2>
-      <p>Cada 10 minutos la app trae de <b>Facturas de proveedores</b> las facturas imputadas a cuentas de <b>materia prima</b> que ya están confirmadas (listas o cargadas en Shares). Gemini lee los renglones: descripción, cantidad, unidad, precio unitario, bonificación e importe. Las notas de crédito y las facturas rechazadas no cuentan.</p>
-      <h2>Lo único que hay que hacer: vincular</h2>
-      <p>La primera vez que aparece una descripción de un proveedor (por ejemplo “CREMA 35% BIDON 5 LTS”), va a <b>Para vincular</b>. Ahí decís qué insumo es y cuánto trae cada unidad facturada (5 litros). Casi siempre alcanza con tocar <b>Confirmar</b> sobre la sugerencia. Desde ese momento, todas las compras con esa descripción se reconocen solas.</p>
-      <ul><li><b>Insumo</b>: el nombre genérico, sin marca ni presentación. La crema de dos proveedores distintos es el mismo insumo: así se comparan.</li>
-        <li><b>Cuánto trae</b>: lleva el precio a $ por kg, litro o unidad. Bolsa × 25 kg → 25. Si ya se factura por kg → 1.</li>
-        <li><b>No es insumo</b>: fletes, servicios, descuentos. Se ignoran.</li></ul>
-      <h2>Los precios</h2>
-      <p>Todos los precios son <b>netos, sin IVA</b>, en pesos (las facturas en dólares se pasan con la cotización de la factura) y con las bonificaciones ya descontadas: la de cada renglón y también la <b>bonificación general al pie</b> (por ejemplo, “Bonificación 20 %” sobre el total), que se reparte entre los productos de la factura. Las facturas con bonificación general lo muestran en verde.</p>
-      <ul><li><b>vs. anterior</b>: contra la compra anterior <b>al mismo proveedor</b>.</li>
-        <li><b>vs. promedio</b>: contra el promedio ponderado por cantidad del período (todos los proveedores).</li></ul>
-      <h2>Alertas</h2>
-      <ul><li><b>Subió / Bajó</b>: el proveedor cambió el precio más que el umbral contra su compra anterior.</li>
-        <li><b>Sobre el promedio</b>: se pagó por encima del promedio del período.</li>
-        <li><b>Otro proveedor más barato</b>: otro proveedor vendió lo mismo más barato en el período.</li></ul>
-      <p>Los umbrales se cambian en <b>Configuración → Ajustes</b>, y cada insumo puede tener el suyo.</p>
-      <h2>Recetas de Shares</h2>
-      <p>Una vez por día, desde las 6 de la mañana, la app trae de Shares las recetas de los <b>productos terminados</b> y las <b>bases</b>, con el costo de cada materia prima, y guarda un registro cada vez que cambia un costo (Shares solo muestra el de hoy: la evolución la arma esta app desde el primer día que se trajeron).</p>
-      <ul><li><b>Productos y bases</b>: costo total, materia prima, costo indirecto del rubro y packaging. Las bases se pueden abrir hasta la última materia prima (“Abierto a materia prima”).</li>
-        <li><b>Shares vs compras</b>: cada insumo de esta app se une con su materia prima de Shares (una sola vez; la app sugiere por nombre). Ahí se compara el costo que usa Shares con el precio de la última compra. Si la compra está por encima, los productos que la usan están <b>subcosteados</b> en Shares.</li>
-        <li><b>Equivalencia</b>: casi siempre 1 (los dos miden por kg o litro). Si Shares mide por caja o por gramo, se indica cuánto es en la unidad del insumo.</li>
-        <li><b>Simulador</b>: cambiá una o varias materias primas, poné una suba general o tocá <b>Usar precios de la última compra</b> para ver cuánto cuesta cada producto de verdad. No cambia nada en Shares.</li></ul>
-      <h2>Si algo no cierra</h2>
-      <p>En <b>Facturas leídas</b>, las marcadas “No cierra” tienen una suma de renglones distinta del neto de la factura. Abrila, mirá la factura y tocá <b>Volver a leer</b>. Si una compra quedó mal (otra presentación), corregila desde el insumo con el lápiz.</p>
-    </div>`;
+  const item = (t, d) => `<dt style="font-family:var(--sans)">${t}</dt><dd style="font-family:var(--sans)">${d}</dd>`;
+  el.innerHTML = `<div class="encabezado"><div><h1>Guía de uso</h1><p>De dónde salen los precios, qué hay que hacer y cómo leer cada pantalla.</p></div></div>
+    <div class="panel"><div class="panel-titulo"><h2>Cómo funciona</h2></div>
+      <ol class="pasos-guia">${PASOS_GUIA_C.map(([ic, t, d], i) => `<li><span class="num-paso">${ICO[ic]}<b>${i + 1}</b></span><div><div class="t">${esc(t)}</div><p>${esc(d)}</p></div></li>`).join('')}</ol></div>
+
+    <div class="dos" style="margin-top:16px">
+      <div class="panel"><div class="panel-titulo"><h2>Lo único que hay que hacer</h2></div><div class="panel-pad guia-txt">
+        <p><b>Vincular</b> (en <a href="#/vincular">Para vincular</a>): cada descripción nueva de un proveedor, por ejemplo “CREMA 35% BIDON 5 LTS”. Casi siempre alcanza con tocar <b>Confirmar</b> sobre la sugerencia.</p>
+        <p><b>Insumo:</b> el nombre genérico, sin marca ni presentación. La crema de dos proveedores es el mismo insumo: así se comparan.</p>
+        <p><b>Cuánto trae:</b> lleva el precio a $ por kg, litro o unidad. Bolsa × 25 kg → 25. Si ya se factura por kg → 1.</p>
+        <p><b>No es insumo:</b> fletes, servicios y descuentos se ignoran.</p>
+        <p><b>Unir con Shares</b> (en <a href="#/comparar">Shares vs compras</a>): una sola vez por insumo, para compararlo con su materia prima de Shares.</p></div></div>
+      <div class="panel"><div class="panel-titulo"><h2>Cómo leer los precios</h2></div><div class="panel-pad guia-txt">
+        <p><b>Netos y sin IVA</b>, en pesos. Las facturas en dólares se pasan con la cotización de la factura.</p>
+        <p><b>Con las bonificaciones descontadas:</b> la de cada renglón y también la general al pie (“Bonificación 20 %”), que se reparte entre los productos. Se muestra en verde.</p>
+        <p><b>vs. anterior:</b> contra la compra anterior <b>al mismo proveedor</b>.</p>
+        <p><b>vs. promedio:</b> contra el promedio ponderado por cantidad del período, de todos los proveedores.</p>
+        <p><span class="var sube">▲ rojo</span> subió · <span class="var baja">▼ verde</span> bajó.</p></div></div>
+    </div>
+
+    <div class="panel"><div class="panel-titulo"><h2>Alertas</h2><span class="small muted">Los umbrales se cambian en Configuración → Ajustes (y cada insumo puede tener el suyo)</span></div><div class="panel-pad">
+      <dl class="kv">
+        ${item(`${icoAlerta('suba')} ${badgeAlerta('suba')} ${badgeAlerta('baja')}`, 'El proveedor cambió el precio más que el umbral, contra su compra anterior.')}
+        ${item(`${icoAlerta('sobre_promedio')} ${badgeAlerta('sobre_promedio')}`, 'Se pagó por encima del promedio del período.')}
+        ${item(`${icoAlerta('mas_caro')} ${badgeAlerta('mas_caro')}`, 'Otro proveedor vendió lo mismo más barato en el período.')}
+        ${item(`${ICO.balanza} <span class="badge b-warn">Shares desactualizado</span>`, 'La última compra quedó lejos del costo que usa Shares en las recetas: los productos que la usan están mal costeados.')}
+      </dl></div></div>
+
+    <div class="dos">
+      <div class="panel"><div class="panel-titulo"><h2>Recetas de Shares</h2></div><div class="panel-pad guia-txt">
+        <p><b>Se traen solas</b> una vez por día, desde las 6 de la mañana. Si necesitás lo último: Configuración → Salud → <b>Traer ahora</b>.</p>
+        <p><b>Costo total</b> = materia prima y bases + costo indirecto del rubro + packaging, por unidad del producto, como lo calcula Shares.</p>
+        <p><b>Abierto a materia prima:</b> Shares informa una base como un insumo más. La app la abre en sus materias primas (y las bases de esas bases) para ver el peso real de cada una.</p>
+        <p><b>Evolución:</b> Shares solo da el costo de hoy. La app guarda un registro cada vez que cambia, desde el primer día que se trajeron las recetas.</p></div></div>
+      <div class="panel"><div class="panel-titulo"><h2>Shares vs compras</h2></div><div class="panel-pad guia-txt">
+        <p><b>Compara</b> el costo de cada materia prima en Shares con el precio de la última compra del insumo unido.</p>
+        <p><b>Si la compra está por encima</b>, Shares está costeando de menos: los productos que la usan están <b>subcosteados</b>.</p>
+        <p><b>Equivalencia:</b> casi siempre 1 (los dos miden por kg o litro). Si Shares mide por caja o por gramo, se indica cuánto es en la unidad del insumo.</p>
+        <p><b>Simulador:</b> cambiá una o varias materias primas, poné una suba general o tocá <b>Usar precios de la última compra</b> para ver cuánto cuesta cada producto de verdad. No toca nada en Shares.</p></div></div>
+    </div>
+
+    <div class="panel"><div class="panel-titulo"><h2>Si algo no cierra</h2></div><div class="panel-pad guia-txt">
+      <p><b>Factura “No cierra”:</b> la suma de los renglones no da el neto de la factura. Abrila desde <a href="#/facturas">Facturas leídas</a>, mirá el PDF y tocá <b>Volver a leer</b>.</p>
+      <p><b>Una compra con otra presentación</b> (un bulto en vez de una unidad): corregila desde la ficha del insumo, con el lápiz del renglón.</p>
+      <p><b>El mismo insumo creado dos veces:</b> en la ficha de uno, <b>Unir con otro</b>.</p>
+      <dl class="kv atajos" style="margin-top:14px"><dt><kbd>Ctrl</kbd> <kbd>K</kbd></dt><dd>Buscar un insumo o proveedor desde cualquier pantalla.</dd><dt><kbd>Esc</kbd></dt><dd>Cerrar una ventana.</dd></dl></div></div>`;
 }
 
 
