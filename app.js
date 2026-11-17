@@ -1689,13 +1689,21 @@ function usosR() {
   R.usos = { mp, bases };
   return R.usos;
 }
+// La variación de cada materia prima se aplica sobre lo que ESA materia prima cuesta DENTRO de esta receta (e.costo),
+// no sobre su costo "habitual" en Shares: hay materias primas que Shares valúa distinto en distintas recetas (otra
+// unidad: kg en una, gramo en otra). Un costo nuevo cargado en $ se toma como variación % contra el costo habitual.
+// Así, una suba general del 3% nunca puede mover un producto más de 3%.
 function simularR(item, cambios, general = 0) {
   let delta = 0;
   for (const e of explotarR(item).mp.values()) {
     const m = R.mp.get(e.id);
-    const actual = m ? m.costo : (e.cantidad ? e.costo / e.cantidad : 0);
-    const nuevo = cambios.has(e.id) ? cambios.get(e.id) : actual * (1 + general / 100);
-    delta += e.cantidad * (nuevo - actual);
+    let factor = 1 + general / 100;
+    if (cambios.has(e.id)) {
+      const nuevo = cambios.get(e.id);
+      if (m && m.costo > 0) factor = nuevo / m.costo;
+      else { delta += e.cantidad * nuevo - e.costo; continue; }   // sin costo de referencia: se reemplaza el precio
+    }
+    delta += e.costo * (factor - 1);
   }
   return { actual: item.costoTotal, nuevo: item.costoTotal + delta, delta, pct: item.costoTotal ? delta / item.costoTotal * 100 : 0 };
 }
@@ -1904,7 +1912,7 @@ async function vistaMPs(el) {
     const qq = normQ(q);
     const f = activas.filter(m => (!qq || normQ(m.denominacion).includes(qq) || String(m.id) === qq.trim()) && (!solo || (solo === 'unidas') === R.insPorMp.has(m.id)));
     $('#tb').innerHTML = f.map(m => { const a = ch.mp.get(m.id), pr = precioRealMp(m.id), n = nPT(m.id), dif = pr ? varPctR(m.costo, pr.precio) : null;
-      return `<tr class="click" data-href="#/mp/${m.id}"><td class="mono">${m.id}</td><td>${esc(m.denominacion)}${R.insPorMp.has(m.id) ? `<small class="sub-celda">${ICO.link} ${esc(R.insPorMp.get(m.id).map(i => i.nombre).join(', '))}</small>` : ''}</td>
+      return `<tr class="click" data-href="#/mp/${m.id}"><td class="mono">${m.id}</td><td>${esc(m.denominacion)}${m.costos_distintos > 1 ? ' <span class="badge b-warn" title="Shares la valúa distinto según la receta">costos distintos</span>' : ''}${R.insPorMp.has(m.id) ? `<small class="sub-celda">${ICO.link} ${esc(R.insPorMp.get(m.id).map(i => i.nombre).join(', '))}</small>` : ''}</td>
         <td class="num" data-orden="${m.costo}"><b>${$$u(m.costo)}</b></td><td class="num" data-orden="${pr?.precio ?? ''}">${pr ? `${$$u(pr.precio)}<small class="sub-celda">${fmtF(pr.insumo.ult_fecha)}</small>` : '<span class="muted">—</span>'}</td>
         <td class="num" data-orden="${dif ?? ''}">${dif === null ? '<span class="muted">—</span>' : chipVar(dif, { titulo: 'Última compra contra el costo que usa Shares' })}</td>
         <td class="num" data-orden="${n}">${n || '<span class="muted">—</span>'}</td><td class="num" data-orden="${varPctR(a?.costo, m.costo) ?? ''}">${chipVarR(a?.costo, m.costo)}</td></tr>`; }).join('') || '<tr><td colspan="7" class="vacio">Nada con ese filtro.</td></tr>';
@@ -1931,7 +1939,7 @@ async function vistaMP(el, id) {
       <h1 style="margin-top:6px">${esc(m.denominacion)}</h1><p>Materia prima ${m.id} de Shares · ${esc(m.categoria || '')}</p></div>
     ${puede('editor') ? `<div class="acciones"><button class="btn btn-negro" id="b-unir">${ICO.link}${unidos.length ? 'Cambiar insumo unido' : 'Unir con un insumo'}</button></div>` : ''}</div>
     <div class="kpis">
-      ${kpiR('Costo en Shares', $$u(m.costo), m.costos_distintos > 1 ? 'Figura con costos distintos en distintas recetas' : 'Costo unitario de las recetas')}
+      ${kpiR('Costo en Shares', $$u(m.costo), m.costos_distintos > 1 ? `<span class="txt-neg">Figura con ${m.costos_distintos} costos distintos según la receta (ver abajo)</span>` : 'Costo unitario de las recetas', m.costos_distintos > 1 ? { clase: 'aviso' } : {})}
       ${kpiR('Última compra', pr ? $$u(pr.precio) : '—', pr ? `${esc(pr.insumo.nombre)} · ${fmtF(pr.insumo.ult_fecha)} · ${esc(pr.insumo.ult_proveedor || '')}` : (unidos.length ? 'Sin compras todavía' : 'No está unida a un insumo'), pr ? { href: '#/insumo/' + pr.insumo.id } : {})}
       ${kpiR('Compra vs Shares', pr ? chipVar(varPctR(m.costo, pr.precio)) : '—', pr ? 'Si es positivo, Shares costea por debajo de lo que se paga' : '', pr && Math.abs(varPctR(m.costo, pr.precio)) >= (S.cfg?.umbral_shares_pct || 10) ? { clase: 'alerta' } : {})}
       ${kpiR('Productos que la usan', pts.length, `${lista.length - pts.length} bases`)}
@@ -1942,9 +1950,10 @@ async function vistaMP(el, id) {
         ${pr ? `<div class="campo"><button class="btn" id="s-real">Usar la última compra (${esc($$u(pr.precio))})</button></div>` : ''}</div>
       <p class="small muted" id="s-res" style="margin:4px 0 0">Escribí un porcentaje o un costo nuevo y la tabla muestra cómo queda cada producto.</p></div>
     <div class="panel"><div class="panel-titulo"><h2>Dónde se usa</h2><span class="small muted">Directo en la receta o dentro de una base</span></div>
-      ${lista.length ? `<div class="tabla-wrap"><table><thead><tr><th>Código</th><th>Producto / base</th><th>Cómo</th><th class="num">Cantidad</th><th class="num">Costo en el producto</th><th class="num">% de su costo</th><th class="num">Costo nuevo</th><th class="num">Impacto</th></tr></thead><tbody>
+      ${lista.length ? `<div class="tabla-wrap"><table><thead><tr><th>Código</th><th>Producto / base</th><th>Cómo</th><th class="num">Cantidad</th><th class="num">Costo unitario en la receta</th><th class="num">Costo en el producto</th><th class="num">% de su costo</th><th class="num">Costo nuevo</th><th class="num">Impacto</th></tr></thead><tbody>
       ${lista.map((u, i) => `<tr class="click" data-href="#/receta/${u.item.tipo}/${u.item.id}"><td class="mono">${u.item.id}</td><td>${esc(u.item.denominacion)}<small class="sub-celda">${TIPO_TXT[u.item.tipo]}</small></td>
-        <td class="small">${u.directo && u.viaBase ? 'directo y en bases' : u.directo ? 'directo' : 'dentro de una base'}</td><td class="num mono">${fmtCantR(u.cantidad)}</td><td class="num">${$$m(u.costo)}</td>
+        <td class="small">${u.directo && u.viaBase ? 'directo y en bases' : u.directo ? 'directo' : 'dentro de una base'}</td><td class="num mono">${fmtCantR(u.cantidad)}</td><td class="num">${(() => { const cu = u.cantidad ? u.costo / u.cantidad : 0, dist = m.costo && Math.abs(cu / m.costo - 1) > 0.02;
+          return `${$$u(cu)}${dist ? `<small class="sub-celda txt-neg" title="Shares valúa esta materia prima distinto en esta receta (puede ser otra unidad: gramo en vez de kg). Conviene revisarlo en Shares.">distinto al habitual</small>` : ''}`; })()}</td><td class="num">${$$m(u.costo)}</td>
         <td class="num">${pctTxt(u.costo, u.item.costoTotal)}</td><td class="num" data-n="${i}">—</td><td class="num" data-p="${i}">—</td></tr>`).join('')}</tbody></table></div>` : '<div class="vacio">No figura en ninguna receta activa.</div>'}</div>
     <div class="panel"><div class="panel-titulo"><h2>Evolución del costo en Shares</h2></div><div class="panel-pad" id="hist"><span class="cargando"></span></div></div>`;
   irA(el);
