@@ -83,6 +83,7 @@ function textoAlerta(a) {
 const LECTURAS = {
   espera: ['Esperando confirmación', 'b-aviso'], pendiente: ['En cola', 'b-recibida'], leyendo: ['Leyendo', 'b-recibida'],
   ok: ['Leída', 'b-ok'], revisar: ['No cierra', 'b-warn'], sin_renglones: ['Sin renglones', 'b-warn'], error: ['Error al leer', 'b-critica'], descartada: ['Descartada', 'b-aviso'],
+  duplicada: ['Duplicada', 'b-aviso'],
 };
 const badgeLectura = (l) => `<span class="badge ${(LECTURAS[l] || [])[1] || ''}">${esc((LECTURAS[l] || [l])[0])}</span>`;
 // ---- Unidades: siempre se compara por kg, litro o unidad, más allá de la presentación ----
@@ -173,7 +174,9 @@ function chequeoFactor(g, base, factor, ref = null) {
   if (!factor) return null;
   const directo = factorDirecto(g.unidad, base);
   const generica = unidadFact(g.unidad) === 'unidad';
-  if (g.contenido && (!g.unidad_base || g.unidad_base === base) && !(directo && !generica) && Math.abs(Number(g.contenido) / factor - 1) > 0.02)
+  // Solo cuando la IA dijo explícitamente la misma unidad base (sin eso, en un pote "1/4 kg" el 0,25 es la capacidad y no
+  // cuántas unidades trae: daba falsos avisos). Un envase por unidad nunca trae menos de 1.
+  if (g.contenido && g.unidad_base === base && !(base === 'un' && Number(g.contenido) < 1) && !(directo && !generica) && Math.abs(Number(g.contenido) / factor - 1) > 0.02)
     return `La IA leyó que cada ${unidadMostrar(g.unidad, factor, base, g.descripcion)} trae ${fmtCant.format(g.contenido)} ${UNI_C[base]}, no ${fmtCant.format(factor)}. Revisá cuál es el correcto en la factura.`;
   const pc = precioComparable(g.ult_unit_ars, factor);
   if (pc && ref && (pc / ref > 2 || pc / ref < 0.5)) return `Daría ${$$m(pc)} por ${UNI[base]} y la referencia es ${$$m(ref)}: más del doble o menos de la mitad.`;
@@ -573,6 +576,9 @@ async function router() {
   if (!S.token) return vistaLogin();
   if (!S.user) return;   // todavía arrancando (iniciar() llama al router cuando sabe quién es el usuario)
   if (S.pdfUrl) { URL.revokeObjectURL(S.pdfUrl); S.pdfUrl = null; S.pdfBytes = null; }
+  // Cada navegación tiene su número: si mientras carga una pantalla se navega a otra, la vieja no escribe su error
+  // encima de la nueva (antes, al cambiar rápido de sección, aparecía "No se pudo cargar" en la pantalla que sí cargó)
+  const nav = S.nav = (S.nav || 0) + 1;
   const h = location.hash || '#/tablero';
   const r = RUTAS.find(x => x.re.test(h)) || RUTAS[0];
   const m = h.match(r.re) || [];
@@ -589,7 +595,7 @@ async function router() {
   window.scrollTo(0, 0);
   if (r.nav !== 'inicio') contadores();
   try { await r.v($('#vista'), ...m.slice(1)); }
-  catch (e) { if (S.token && $('#vista')) { $('#vista').innerHTML = `<div class="panel panel-pad"><h2>No se pudo cargar</h2><p class="muted">${esc(e.message)}</p><button class="btn btn-acento" id="b-reint">${ICO.refresh}Reintentar</button></div>`; $('#b-reint').onclick = router; } }
+  catch (e) { if (nav !== S.nav) return; if (S.token && $('#vista')) { $('#vista').innerHTML = `<div class="panel panel-pad"><h2>No se pudo cargar</h2><p class="muted">${esc(e.message)}</p><button class="btn btn-acento" id="b-reint">${ICO.refresh}Reintentar</button></div>`; $('#b-reint').onclick = router; } }
 }
 
 async function iniciar() {
@@ -851,8 +857,9 @@ async function vistaInsumo(el, id) {
       ${d.renglones.length ? d.renglones.map(r => `<tr class="${r.ignorado ? 'inactivo' : ''}">
         <td class="mono">${fmtF(r.fecha)}</td><td>${esc(r.proveedor || '')}<small class="sub-celda"><a href="#" data-fac="${r.factura_id}">${esc(TIPOS[r.tipo] || '')} ${nroCbte(r)}</a></small></td>
         <td class="desc-fac">${esc(r.descripcion)}</td>
-        <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(unidadFact(r.unidad))}</small></td>
-        <td class="small">${esc(textoEquivale(r.unidad, r.factor, u, r.descripcion))}</td>
+        <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(unidadFact(r.unidad))}</small>${r.lectura_nota ? `<small class="sub-celda muted" title="Lo que la app corrigió al leer este renglón">${esc(r.lectura_nota)}</small>` : ''}</td>
+        <td class="small">${esc(textoEquivale(r.unidad, r.factor, u, r.descripcion))}${(() => { const av = !r.ignorado && r.factor ? chequeoFactor({ unidad: r.unidad, unidad_base: r.unidad_base, contenido: r.contenido, descripcion: r.descripcion }, u, Number(r.factor)) : null;
+          return av ? `<small class="sub-celda txt-neg con-ico-chico">${ICO.alert}${esc(av)}</small>` : ''; })()}</td>
         <td class="num">${$$mon(r.precio_unitario, r.moneda)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}${r.desc_pct ? `<small class="sub-celda txt-pos">desc. general ${dec(r.desc_pct)} %</small>` : ''}</td>
         <td class="num"><b>${r.ignorado ? '<span class="muted">No cuenta</span>' : r.alerta_lectura ? `<span class="txt-neg con-ico-chico">${ICO.alert}No cuenta</span>` : r.precio_base == null ? `<span class="txt-neg con-ico-chico">${ICO.alert}No cuenta</span>` : fmtP(r.precio_base, u)}</b>${r.alerta_lectura ? `<small class="sub-celda txt-neg">${esc(r.alerta_lectura)}</small>` : r.precio_base == null && !r.ignorado ? '<small class="sub-celda txt-neg">La IA no leyó la cantidad: corregila en la factura</small>' : ''}</td>
         <td>${puede('editor') ? `<button class="btn btn-chico" data-ren="${r.id}" title="Corregir">${ICO.pencil}</button>` : ''}</td></tr>`).join('')
@@ -1055,7 +1062,7 @@ async function vistaFacturas(el) {
   el.innerHTML = `<div class="encabezado"><div><h1>Facturas leídas</h1><p>Facturas de materia prima traídas de la app de facturas de proveedores, con sus renglones.</p></div>
       ${puede('editor') ? `<div class="acciones"><button class="btn" id="b-sync">${ICO.refresh}Sincronizar ahora</button></div>` : ''}</div>
     <div class="panel"><div class="cola-bar"><label class="campo-buscar">${ICO.search}<input id="q" placeholder="Proveedor, CUIT, número o #id"></label>
-      <div class="seg" id="seg-l" style="margin:0">${[['', 'Todas'], ['ok', 'Leídas'], ['revisar', 'No cierran'], ['pendiente', 'En cola'], ['error', 'Con error'], ['espera', 'Esperando']].map(([k, t]) => `<button data-l="${k}" class="${k === lectura ? 'on' : ''}">${t}</button>`).join('')}</div></div>
+      <div class="seg" id="seg-l" style="margin:0">${[['', 'Todas'], ['ok', 'Leídas'], ['revisar', 'No cierran'], ['pendiente', 'En cola'], ['error', 'Con error'], ['espera', 'Esperando'], ['duplicada', 'Duplicadas']].map(([k, t]) => `<button data-l="${k}" class="${k === lectura ? 'on' : ''}">${t}</button>`).join('')}</div></div>
       <div class="tabla-wrap"><table><thead><tr><th>Proveedor</th><th>Comprobante</th><th>Fecha</th><th class="num">Neto</th><th class="num">Renglones</th><th>Lectura</th></tr></thead><tbody id="tb"><tr><td colspan="6" class="vacio"><span class="cargando"></span></td></tr></tbody></table></div></div>`;
   const cargar = async () => {
     const p = new URLSearchParams(); if (lectura) p.set('lectura', lectura); if ($('#q').value.trim()) p.set('q', $('#q').value.trim());
