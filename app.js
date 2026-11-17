@@ -493,7 +493,7 @@ async function vistaLogin() {
 //  Shell y router
 // ---------------------------------------------------------------------------
 const RUTAS = [
-  { re: /^#\/tablero$/, v: (el) => vistaTablero(el), nav: 'tablero', miga: '<b>Tablero ejecutivo</b>' },
+  { re: /^#\/tablero$/, v: (el) => vistaTablero(el), nav: 'tablero', miga: '<b>Tablero</b>' },
   { re: /^#\/inicio$/, v: vistaInicio, nav: 'inicio', miga: 'Seguimiento / <b>Novedades de compras</b>' },
   { re: /^#\/alertas$/, v: vistaAlertas, nav: 'alertas', miga: 'Seguimiento / <b>Alertas</b>' },
   { re: /^#\/insumos$/, v: vistaInsumos, nav: 'insumos', miga: 'Seguimiento / <b>Insumos</b>' },
@@ -522,7 +522,7 @@ function shell(ruta) {
     <aside class="side">
       <a class="brand" href="#/tablero"><img src="logo-negro.png" alt="Lucciano's"><span>Costos de insumos</span></a>
       <nav class="nav" aria-label="Secciones">
-        ${it('tablero', 'chart', 'Tablero ejecutivo')}
+        ${it('tablero', 'chart', 'Tablero')}
         <div class="grp-t">Seguimiento</div>
         ${it('inicio', 'home', 'Novedades de compras')}
         ${it('alertas', 'bell', 'Alertas', '<span class="cnt hot" data-cnt="alertas"></span>')}
