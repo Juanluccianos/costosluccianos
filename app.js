@@ -1339,7 +1339,7 @@ const PASOS_GUIA_C = [
   ['balanza', 'Contra Shares', 'Una vez por día se traen las recetas de Shares. Cada insumo unido compara el costo que usa Shares con lo que realmente se pagó.'],
 ];
 async function vistaGuia(el) {
-  const item = (t, d) => `<dt style="font-family:var(--sans)">${t}</dt><dd style="font-family:var(--sans)">${d}</dd>`;
+  const tarjeta = (ico, t, d) => `<div class="guia-al">${ico}<div><div class="t">${t}</div><p>${d}</p></div></div>`;
   el.innerHTML = `<div class="encabezado"><div><h1>Guía de uso</h1><p>De dónde salen los precios, qué hay que hacer y cómo leer cada pantalla.</p></div></div>
     <div class="panel"><div class="panel-titulo"><h2>Cómo funciona</h2></div>
       <ol class="pasos-guia">${PASOS_GUIA_C.map(([ic, t, d], i) => `<li><span class="num-paso">${ICO[ic]}<b>${i + 1}</b></span><div><div class="t">${esc(t)}</div><p>${esc(d)}</p></div></li>`).join('')}</ol></div>
@@ -1359,13 +1359,14 @@ async function vistaGuia(el) {
         <p><span class="var sube">▲ rojo</span> subió · <span class="var baja">▼ verde</span> bajó.</p></div></div>
     </div>
 
-    <div class="panel"><div class="panel-titulo"><h2>Alertas</h2><span class="small muted">Los umbrales se cambian en Configuración → Ajustes (y cada insumo puede tener el suyo)</span></div><div class="panel-pad">
-      <dl class="kv">
-        ${item(`${icoAlerta('suba')} ${badgeAlerta('suba')} ${badgeAlerta('baja')}`, 'El proveedor cambió el precio más que el umbral, contra su compra anterior.')}
-        ${item(`${icoAlerta('sobre_promedio')} ${badgeAlerta('sobre_promedio')}`, 'Se pagó por encima del promedio del período.')}
-        ${item(`${icoAlerta('mas_caro')} ${badgeAlerta('mas_caro')}`, 'Otro proveedor vendió lo mismo más barato en el período.')}
-        ${item(`${ICO.balanza} <span class="badge b-warn">Shares desactualizado</span>`, 'La última compra quedó lejos del costo que usa Shares en las recetas: los productos que la usan están mal costeados.')}
-      </dl></div></div>
+    <div class="panel"><div class="panel-titulo"><h2>Alertas</h2><span class="small muted">Los umbrales se cambian en Configuración → Ajustes</span></div>
+      <div class="panel-pad guia-alertas">
+        ${tarjeta('<span class="al-ico al-suba">▲</span>', 'Subió', 'El proveedor lo cobró más caro que en su compra anterior, por encima del umbral. Cada insumo puede tener su propio umbral.')}
+        ${tarjeta('<span class="al-ico al-baja">▼</span>', 'Bajó', 'El proveedor lo cobró más barato que en su compra anterior (se puede apagar en Ajustes).')}
+        ${tarjeta('<span class="al-ico al-sobre_promedio">≈</span>', 'Sobre el promedio', 'Se pagó por encima del promedio del período, contando todos los proveedores.')}
+        ${tarjeta('<span class="al-ico al-mas_caro">$</span>', 'Otro proveedor más barato', 'Otro proveedor vendió el mismo insumo más barato en el período.')}
+        ${tarjeta(`<span class="al-ico al-sobre_promedio">${ICO.balanza}</span>`, 'Shares desactualizado', 'La última compra quedó lejos del costo que usa Shares en las recetas: los productos que la usan están mal costeados.')}
+      </div></div>
 
     <div class="dos">
       <div class="panel"><div class="panel-titulo"><h2>Recetas de Shares</h2></div><div class="panel-pad guia-txt">
@@ -1380,11 +1381,14 @@ async function vistaGuia(el) {
         <p><b>Simulador:</b> cambiá una o varias materias primas, poné una suba general o tocá <b>Usar precios de la última compra</b> para ver cuánto cuesta cada producto de verdad. No toca nada en Shares.</p></div></div>
     </div>
 
-    <div class="panel"><div class="panel-titulo"><h2>Si algo no cierra</h2></div><div class="panel-pad guia-txt">
-      <p><b>Factura “No cierra”:</b> la suma de los renglones no da el neto de la factura. Abrila desde <a href="#/facturas">Facturas leídas</a>, mirá el PDF y tocá <b>Volver a leer</b>.</p>
-      <p><b>Una compra con otra presentación</b> (un bulto en vez de una unidad): corregila desde la ficha del insumo, con el lápiz del renglón.</p>
-      <p><b>El mismo insumo creado dos veces:</b> en la ficha de uno, <b>Unir con otro</b>.</p>
-      <dl class="kv atajos" style="margin-top:14px"><dt><kbd>Ctrl</kbd> <kbd>K</kbd></dt><dd>Buscar un insumo o proveedor desde cualquier pantalla.</dd><dt><kbd>Esc</kbd></dt><dd>Cerrar una ventana.</dd></dl></div></div>`;
+    <div class="dos">
+      <div class="panel"><div class="panel-titulo"><h2>Si algo no cierra</h2></div><div class="panel-pad guia-txt">
+        <p><b>Factura “No cierra”:</b> la suma de los renglones no da el neto de la factura. Abrila desde <a href="#/facturas">Facturas leídas</a>, mirá el PDF y tocá <b>Volver a leer</b>.</p>
+        <p><b>Una compra con otra presentación</b> (un bulto en vez de una unidad): corregila desde la ficha del insumo, con el lápiz del renglón.</p>
+        <p><b>El mismo insumo creado dos veces:</b> en la ficha de uno, <b>Unir con otro</b>.</p></div></div>
+      <div class="panel"><div class="panel-titulo"><h2>Atajos</h2></div><div class="panel-pad">
+        <dl class="kv atajos guia-atajos"><dt><kbd>Ctrl</kbd> <kbd>K</kbd></dt><dd>Buscar un insumo o proveedor desde cualquier pantalla.</dd><dt><kbd>Esc</kbd></dt><dd>Cerrar una ventana.</dd><dt><kbd>Enter</kbd></dt><dd>En un buscador de insumos, elegir el resaltado.</dd></dl></div></div>
+    </div>`;
 }
 
 
@@ -2040,7 +2044,7 @@ async function panelSharesInsumo(cont, ins) {
       <div style="flex:1;min-width:220px"><b>En Shares: <a href="#/mp/${m.id}">${esc(m.denominacion)}</a></b><div class="small muted">Costo en Shares ${$$u(m.costo)}${Number(ins.shares_factor) !== 1 && ins.shares_factor ? ` · 1 unidad de Shares = ${fmtCantR(ins.shares_factor)} ${esc(UNI_C[ins.unidad])}` : ''} · se usa en ${n} producto${n === 1 ? '' : 's'}</div></div>
       <div style="text-align:right"><div class="small muted">Última compra vs Shares</div><div style="font:700 18px var(--display)">${dif === null ? '—' : chipVar(dif)}</div></div>
       ${puede('editor') ? `<button class="btn btn-chico" id="b-us">${ICO.pencil}Cambiar</button>` : ''}</div>
-      ${dif !== null && Math.abs(dif) >= umbral ? `<p class="small" style="margin:10px 0 0">${dif > 0 ? `<b>Shares está costeando por debajo de lo que se paga.</b> Los ${n} productos que la usan están subcosteados.` : '<b>Shares está costeando por encima de lo que se paga.</b>'} <a href="#/mp/${m.id}">Ver el impacto en cada producto</a></p>` : ''}</div>`;
+      ${dif !== null && Math.abs(dif) >= umbral ? `<p class="small" style="margin:10px 0 0">${dif > 0 ? `<b>Shares está costeando por debajo de lo que se paga.</b> ${n === 1 ? 'El producto que la usa está subcosteado.' : `Los ${n} productos que la usan están subcosteados.`}` : '<b>Shares está costeando por encima de lo que se paga.</b>'} <a href="#/mp/${m.id}">Ver el impacto en cada producto</a></p>` : ''}</div>`;
   }
   const b = $('#b-us', cont); if (b) b.onclick = () => modalUnirDesdeInsumo(ins);
 }

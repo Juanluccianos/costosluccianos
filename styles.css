@@ -889,3 +889,12 @@ tr.fila-desc td { background: var(--pos-bg); }
   .ck-av .cuad { opacity: 0 !important; } .ck-av .ck-box { opacity: 1 !important; }
   .prov .ck-av { display: grid; }
 }
+
+/* Guía de uso: alertas en tarjetas y atajos */
+.guia-alertas { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.guia-al { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.guia-al .t { font: 700 14.5px var(--display); margin-bottom: 3px; }
+.guia-al p { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.45; }
+.guia-al .al-ico svg { width: 18px; height: 18px; }
+.guia-atajos { gap: 10px 16px; align-items: center; }
+.guia-atajos dd { font-family: var(--sans); color: var(--muted); }
