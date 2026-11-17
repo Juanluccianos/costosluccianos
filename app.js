@@ -3,6 +3,8 @@
  *  Vanilla JS, sin build. Habla con el Worker (window.COSTOS_API).
  *  Rutas: #/inicio, #/alertas, #/insumos, #/insumo/ID, #/vincular, #/facturas,
  *         #/admin, #/guia, #/cuenta
+ *  Recetas de Shares (1.4.0): #/productos, #/bases, #/receta/TIPO/ID, #/mp, #/mp/ID, #/comparar,
+ *         #/cambios, #/simulador (el código está al final del archivo)
  * ============================================================================= */
 'use strict';
 
@@ -465,6 +467,14 @@ const RUTAS = [
   { re: /^#\/vincular$/, v: vistaVincular, nav: 'vincular', miga: 'Trabajo / <b>Para vincular</b>' },
   { re: /^#\/facturas$/, v: vistaFacturas, nav: 'facturas', miga: 'Trabajo / <b>Facturas leídas</b>' },
   { re: /^#\/factura\/(\d+)$/, v: vistaFactura, nav: 'facturas', miga: 'Trabajo / <a href="#/facturas">Facturas leídas</a> / <b>Factura</b>' },
+  { re: /^#\/productos$/, v: (el) => vistaRecLista(el, 'PRODUCTO_TERMINADO'), nav: 'productos', miga: 'Recetas / <b>Productos terminados</b>' },
+  { re: /^#\/bases$/, v: (el) => vistaRecLista(el, 'BASE'), nav: 'bases', miga: 'Recetas / <b>Bases</b>' },
+  { re: /^#\/receta\/(PRODUCTO_TERMINADO|BASE)\/(\d+)$/, v: vistaRecItem, nav: '', miga: 'Recetas / <b>Receta</b>' },
+  { re: /^#\/mp$/, v: vistaMPs, nav: 'mp', miga: 'Recetas / <b>Materias primas de Shares</b>' },
+  { re: /^#\/mp\/(\d+)$/, v: vistaMP, nav: 'mp', miga: 'Recetas / <a href="#/mp">Materias primas de Shares</a> / <b>Materia prima</b>' },
+  { re: /^#\/comparar$/, v: vistaComparar, nav: 'comparar', miga: 'Recetas / <b>Shares vs compras</b>' },
+  { re: /^#\/cambios$/, v: vistaRecCambios, nav: 'cambios', miga: 'Recetas / <b>Cambios de costo</b>' },
+  { re: /^#\/simulador$/, v: vistaSimulador, nav: 'simulador', miga: 'Recetas / <b>Simulador</b>' },
   { re: /^#\/admin$/, v: vistaAdmin, nav: 'admin', miga: 'Datos / <b>Configuración</b>' },
   { re: /^#\/guia$/, v: vistaGuia, nav: 'guia', miga: '<b>Guía de uso</b>' },
   { re: /^#\/cuenta$/, v: vistaMiCuenta, nav: '', miga: '<b>Mi cuenta</b>' },
@@ -482,6 +492,13 @@ function shell(ruta) {
         <div class="grp-t">Seguimiento</div>
         ${it('alertas', 'bell', 'Alertas', '<span class="cnt hot" data-cnt="alertas"></span>')}
         ${it('insumos', 'box', 'Insumos')}
+        <div class="grp-t">Recetas (Shares)</div>
+        ${it('productos', 'cono', 'Productos terminados')}
+        ${it('bases', 'layers', 'Bases')}
+        ${it('mp', 'flask', 'Materias primas')}
+        ${it('comparar', 'balanza', 'Shares vs compras', '<span class="cnt hot" data-cnt="shares"></span>')}
+        ${it('cambios', 'trend', 'Cambios de costo')}
+        ${it('simulador', 'calc', 'Simulador')}
         <div class="grp-t">Trabajo</div>
         ${it('vincular', 'link', 'Para vincular', '<span class="cnt" data-cnt="vincular"></span>')}
         ${it('facturas', 'doc', 'Facturas leídas')}
@@ -504,7 +521,7 @@ function shell(ruta) {
       <a href="#/alertas" class="${a === 'alertas' ? 'activo' : ''}">${ICO.bell}Alertas<span class="cnt hot" data-cnt="alertas"></span></a>
       <a href="#/insumos" class="${a === 'insumos' ? 'activo' : ''}">${ICO.box}Insumos</a>
       <a href="#/vincular" class="${a === 'vincular' ? 'activo' : ''}">${ICO.link}Vincular<span class="cnt" data-cnt="vincular"></span></a>
-      <a href="#/facturas" class="${a === 'facturas' ? 'activo' : ''}">${ICO.doc}Facturas</a>
+      <a href="#/productos" class="${['productos', 'bases', 'mp', 'comparar', 'cambios', 'simulador'].includes(a) ? 'activo' : ''}">${ICO.cono}Recetas</a>
     </nav>`;
 }
 
@@ -514,7 +531,7 @@ async function contadores(t = null) {
       if (S.cnt && Date.now() - S.cnt.at < 60000) return pintarContadores(S.cnt);
       t = await api('/api/tablero');
     }
-    S.cnt = { at: Date.now(), alertas: t.alertas_sin_ver, vincular: t.vincular_grupos };
+    S.cnt = { at: Date.now(), alertas: t.alertas_sin_ver, vincular: t.vincular_grupos, shares: t.shares?.desactualizados || 0 };
     pintarContadores(S.cnt);
   } catch { /* no es crítico */ }
 }
@@ -578,6 +595,10 @@ async function vistaInicio(el) {
       <a class="kpi" href="#/insumos"><div class="et">Insumos seguidos</div><div class="val">${t.insumos}</div><div class="sub">${t.insumos_con_precio || 0} con precio</div></a>
       <a class="kpi" href="#/facturas"><div class="et">Facturas leídas</div><div class="val">${leidas}</div><div class="sub">${F.revisar ? `${F.revisar} no cierran · ` : ''}${cola ? `${cola} en cola` : 'al día'}</div></a>
     </div>
+    ${t.shares?.desactualizados ? `<div class="panel"><div class="panel-titulo"><h2>${ICO.balanza} Shares desactualizado</h2><a class="btn btn-ghost btn-chico" href="#/comparar">Ver todos</a></div>
+      <p class="small muted" style="margin:0;padding:0 18px 6px">${t.shares.desactualizados} materia${t.shares.desactualizados > 1 ? 's primas' : ' prima'} con la última compra ${t.shares.umbral} % o más lejos del costo que usa Shares. Los productos que las usan están mal costeados.</p>
+      <ul class="feed">${t.shares.top.map(x => `<li data-href="#/mp/${x.codigo_shares}" tabindex="0">${cuad(x.nombre)}<div style="min-width:0"><div class="t">${esc(x.nombre)}</div><div class="d">Shares ${$$m(x.costo_shares)} · compra ${$$m(x.precio_real)} (${esc(x.ult_proveedor || '')}, ${fmtF(x.ult_fecha)})</div></div>
+        <div class="r">${chipVar(x.dif_pct, { titulo: 'Última compra contra el costo de Shares' })}</div></li>`).join('')}</ul></div>` : ''}
     <div class="dos">
       <div class="panel"><div class="panel-titulo"><h2>Alertas nuevas</h2><a class="btn btn-ghost btn-chico" href="#/alertas">Ver todas</a></div>
         ${t.ultimas_alertas.length ? `<ul class="feed">${t.ultimas_alertas.map(a => `<li data-ins="${a.insumo_id}" tabindex="0">${cuad(a.insumo)}<div style="min-width:0"><div class="t">${esc(a.insumo)}</div><div class="d">${esc(textoAlerta(a))}</div></div>
@@ -589,6 +610,7 @@ async function vistaInicio(el) {
     </div>
     <p class="small muted" style="margin-top:14px">Última sincronización con la app de facturas: ${t.ultima_sync ? fmtFH(t.ultima_sync + 'Z') : 'todavía no'} · Se actualiza sola cada 10 minutos.</p>`;
   $$('[data-ins]', el).forEach(li => { li.onclick = () => { location.hash = '#/insumo/' + li.dataset.ins; }; li.onkeydown = (e) => { if (e.key === 'Enter') li.click(); }; });
+  $$('li[data-href]', el).forEach(li => { li.onclick = () => { location.hash = li.dataset.href; }; li.onkeydown = (e) => { if (e.key === 'Enter') li.click(); }; });
   const bs = $('#b-sync'); if (bs) bs.onclick = () => conBoton(bs, sincronizarAhora);
 }
 async function sincronizarAhora() {
@@ -777,6 +799,7 @@ async function vistaInsumo(el, id) {
       <div class="kpi"><div class="et">vs. promedio ${dias} días</div><div class="val">${chipVar(i.var_prom)}</div><div class="sub">${i.prom_precio ? `Promedio ponderado ${fmtP(i.prom_precio, u)}` : 'Sin compras para promediar'}</div></div>
       <div class="kpi"><div class="et">Comprado · ${dias} días</div><div class="val">${i.cantidad_periodo ? fmtCant.format(i.cantidad_periodo) + ' ' + esc(UNI_C[u]) : '—'}</div><div class="sub">${i.proveedores || 0} proveedor(es) en el período</div></div>
     </div>
+    <div id="sh-panel"></div>
     <div class="panel"><div class="panel-titulo"><h2>Precio por ${esc(UNI[u])} en el tiempo</h2><div class="leyenda" id="leyenda"></div></div>
       <div class="grafico" id="graf"></div></div>
     <div class="dos">
@@ -813,6 +836,7 @@ async function vistaInsumo(el, id) {
   const be = $('#b-edit'); if (be) be.onclick = () => modalInsumo(i, () => router());
   const bu = $('#b-unir'); if (bu) bu.onclick = () => modalUnir(i);
   $$('[data-ren]', el).forEach(b => b.onclick = () => modalRenglon(d.renglones.find(r => String(r.id) === b.dataset.ren), i));
+  panelSharesInsumo($('#sh-panel'), i);
 }
 
 function modalUnir(i) {
@@ -1264,6 +1288,7 @@ const CFG_UI = [
   ] },
   { t: 'Precios', ico: 'chart', items: [
     { k: 'dias_promedio', tipo: 'numero', suf: 'días', t: 'Período del promedio', d: 'Ventana del promedio ponderado y de la comparación entre proveedores.' },
+    { k: 'umbral_shares_pct', tipo: 'numero', step: 0.5, suf: '%', t: 'Shares desactualizado', d: 'Marca una materia prima cuando la última compra queda este porcentaje (o más) lejos del costo que usa Shares en las recetas.' },
   ] },
   { t: 'Lectura de facturas', ico: 'sparkle', items: [
     { k: 'lecturas_por_corrida', tipo: 'numero', suf: 'facturas', t: 'Facturas por corrida', d: 'Máximo de facturas que se leen en cada corrida (cada 10 minutos; si Google corta, la app espera y sigue). Hasta 60.' },
@@ -1293,7 +1318,13 @@ async function adminSalud(el) {
     ${fila(s.facturas_binding && s.costos_secret, 'App de facturas de proveedores', `Service binding FACTURAS ${s.facturas_binding ? 'cargado' : 'falta'} · COSTOS_SECRET ${s.costos_secret ? 'cargado' : 'falta'}`, 'facturas')}
     ${fila(!!s.ultima_sync, 'Sincronización', s.ultima_sync ? `Última: ${fmtFH(s.ultima_sync + 'Z')} · hasta la factura #${esc(s.cursor || 0)}` : 'Todavía no corrió. Corre sola cada 10 minutos (Cron Trigger).')}
     ${fila(true, 'Datos', `${s.insumos} insumo(s) · ${s.vinculos} descripción(es) vinculada(s) · ${s.renglones} renglón(es) leído(s)`)}
+    ${(() => { const rc = s.recetas || {}, pt = rc.PRODUCTO_TERMINADO, bs = rc.BASE, er = rc.error;
+      const ok = rc.shares && pt && bs && (!er || er.at < (pt.at > bs.at ? pt.at : bs.at));
+      return fila(rc.shares, 'Shares (recetas)', `${esc(rc.url || '')}${rc.shares ? '' : ' · faltan SHARES_USERNAME y SHARES_PASSWORD en el Worker'}`, 'shares')
+        + fila(ok, 'Recetas de Shares', `${pt ? `Productos: ${fmtFH(pt.at)} (${pt.cantidad})` : 'Productos: todavía no'} · ${bs ? `Bases: ${fmtFH(bs.at)} (${bs.cantidad})` : 'Bases: todavía no'} · ${rc.materias_primas || 0} materias primas${rc.costos_distintos ? ` · <b>${rc.costos_distintos} con costos distintos en distintas recetas</b>` : ''}${er && (!pt || er.at > pt.at) ? `<br><span class="txt-neg">Último error (${fmtFH(er.at)}): ${esc(er.error)}</span>` : ''}<br>Se traen solas una vez por día, desde las 6. ${puede('editor') ? '<button class="btn btn-chico" id="b-rec" style="margin-top:6px">Traer ahora</button>' : ''}`);
+    })()}
   </tbody></table><p class="small muted">Versión ${esc(s.version)}</p>`;
+  const brc = $('#b-rec', el); if (brc) brc.onclick = () => traerRecetas(brc, puede('admin'));
   $$('[data-probar]', el).forEach(b => b.onclick = () => conBoton(b, async () => { const r = await api('/api/probar/' + b.dataset.probar, { method: 'POST' }); toast(r.mensaje); }));
 }
 
@@ -1319,6 +1350,12 @@ async function vistaGuia(el) {
         <li><b>Sobre el promedio</b>: se pagó por encima del promedio del período.</li>
         <li><b>Otro proveedor más barato</b>: otro proveedor vendió lo mismo más barato en el período.</li></ul>
       <p>Los umbrales se cambian en <b>Configuración → Ajustes</b>, y cada insumo puede tener el suyo.</p>
+      <h2>Recetas de Shares</h2>
+      <p>Una vez por día, desde las 6 de la mañana, la app trae de Shares las recetas de los <b>productos terminados</b> y las <b>bases</b>, con el costo de cada materia prima, y guarda un registro cada vez que cambia un costo (Shares solo muestra el de hoy: la evolución la arma esta app desde el primer día que se trajeron).</p>
+      <ul><li><b>Productos y bases</b>: costo total, materia prima, costo indirecto del rubro y packaging. Las bases se pueden abrir hasta la última materia prima (“Abierto a materia prima”).</li>
+        <li><b>Shares vs compras</b>: cada insumo de esta app se une con su materia prima de Shares (una sola vez; la app sugiere por nombre). Ahí se compara el costo que usa Shares con el precio de la última compra. Si la compra está por encima, los productos que la usan están <b>subcosteados</b> en Shares.</li>
+        <li><b>Equivalencia</b>: casi siempre 1 (los dos miden por kg o litro). Si Shares mide por caja o por gramo, se indica cuánto es en la unidad del insumo.</li>
+        <li><b>Simulador</b>: cambiá una o varias materias primas, poné una suba general o tocá <b>Usar precios de la última compra</b> para ver cuánto cuesta cada producto de verdad. No cambia nada en Shares.</li></ul>
       <h2>Si algo no cierra</h2>
       <p>En <b>Facturas leídas</b>, las marcadas “No cierra” tienen una suma de renglones distinta del neto de la factura. Abrila, mirá la factura y tocá <b>Volver a leer</b>. Si una compra quedó mal (otra presentación), corregila desde el insumo con el lápiz.</p>
     </div>`;
@@ -1517,3 +1554,610 @@ new MutationObserver(() => {
   }, 60);
 }).observe(document.documentElement, { childList: true, subtree: true });
 
+
+
+// =============================================================================
+//  RECETAS DE SHARES (1.4.0)
+//  El servidor guarda las recetas que trae de Shares una vez por día y su historial. Acá se hacen los
+//  cálculos con el catálogo completo en memoria:
+//   · explotarR(item): abre las bases de un producto hasta la última materia prima (Shares no lo hace).
+//   · usosR(): en qué productos y bases se usa cada materia prima (directo o dentro de una base).
+//   · simularR(item, cambios, general): costo nuevo si cambian los costos de materias primas.
+//  Y el cruce con lo que ya hacía esta app: cada insumo se une con su materia prima de Shares para comparar
+//  el costo que usa Shares con el precio real de la última compra.
+// =============================================================================
+Object.assign(ICO, {
+  layers: svgI('<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>'),
+  flask: svgI('<path d="M9 3h6M10 3v6L4 19a1 1 0 0 0 1 2h14a1 1 0 0 0 1-2l-6-10V3"/><path d="M7 15h10"/>'),
+  cono: svgI('<path d="M7 11a5 5 0 0 1 10 0"/><path d="M6 11h12l-6 11z"/>'),
+  balanza: svgI('<path d="M12 3v18M7 21h10M5 7h14"/><path d="m5 7-3 6a3 3 0 0 0 6 0zM19 7l-3 6a3 3 0 0 0 6 0z"/>'),
+  download: svgI('<path d="M12 3v12M8 11l4 4 4-4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>'),
+  trash: svgI('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>'),
+});
+
+const R = { cat: null, porKey: new Map(), mp: new Map(), ins: [], insPorMp: new Map(), expl: new Map(), usos: null, cambios: null };
+const kItem = (tipo, id) => `${tipo}:${id}`;
+const TIPO_TXT = { PRODUCTO_TERMINADO: 'Producto terminado', BASE: 'Base' };
+const esLineaBaseR = (l) => /BASE/i.test(l.categoria || '') && R.porKey.has(kItem('BASE', l.id));
+const recItems = (tipo) => (R.cat?.items || []).filter(i => !tipo || i.tipo === tipo);
+
+// Formatos
+const fmt4R = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+const fmt6R = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+const $$u = (n) => { const x = Number(n); if (n === null || n === undefined || !Number.isFinite(x)) return '—'; return '$ ' + (Math.abs(x) >= 1 || x === 0 ? fmtNum.format(x) : fmt4R.format(x)); };
+const fmtCantR = (n) => { const x = Number(n) || 0; return Math.abs(x) < 0.001 && x !== 0 ? fmt6R.format(x) : fmt4R.format(x); };
+const pctTxt = (v, total) => total ? (v / total * 100).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + ' %' : '—';
+const varPctR = (antes, ahora) => (antes && Number(antes) ? (ahora - antes) / antes * 100 : null);
+const chipVarR = (antes, ahora, titulo = '') => { const p = varPctR(antes, ahora); return p === null ? '<span class="muted">—</span>' : chipVar(p, { titulo: titulo || `Antes ${$$u(antes)}` }); };
+const kpiR = (et, val, sub = '', { href = '', clase = '' } = {}) => href
+  ? `<a class="kpi ${clase}" href="${href}"><div class="et">${et}</div><div class="val">${val}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</a>`
+  : `<div class="kpi ${clase}"><div class="et">${et}</div><div class="val">${val}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
+function descargarXlsx(nombre, hojas) {
+  if (!window.XLSX) { toast('No cargó la librería de Excel. Revisá la conexión.', true); return; }
+  const wb = XLSX.utils.book_new();
+  for (const [titulo, filas, anchos] of hojas) {
+    const ws = XLSX.utils.aoa_to_sheet(filas);
+    if (anchos) ws['!cols'] = anchos.map(w => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, ws, titulo.slice(0, 31));
+  }
+  XLSX.writeFile(wb, nombre);
+}
+const irA = (el) => $$('tr[data-href], li[data-href]', el).forEach(x => { x.onclick = () => { location.hash = x.dataset.href; }; });
+
+async function cargarRecetas(forzar = false) {
+  if (R.cat && !forzar) return R.cat;
+  const c = await api('/api/recetas/catalogo');
+  R.cat = c;
+  R.porKey = new Map(c.items.map(i => [kItem(i.tipo, i.id), i]));
+  R.mp = new Map(c.mp.map(m => [m.id, m]));
+  R.ins = c.insumos;
+  R.insPorMp = new Map();
+  for (const i of c.insumos) if (i.codigo_shares) { const k = Number(i.codigo_shares); R.insPorMp.set(k, [...(R.insPorMp.get(k) || []), i]); }
+  R.expl = new Map(); R.usos = null; R.cambios = null;
+  return c;
+}
+
+function explotarR(item, pila = new Set()) {
+  const k = kItem(item.tipo, item.id);
+  if (R.expl.has(k)) return R.expl.get(k);
+  if (pila.has(k)) return { mp: new Map(), indirectoBases: 0, ajuste: 0 };
+  pila.add(k);
+  const mp = new Map();
+  let indirectoBases = 0, ajuste = 0;
+  const sumar = (id, den, categoria, cant, costo, origen) => {
+    const e = mp.get(id) || { id, denominacion: den, categoria, cantidad: 0, costo: 0, origenes: new Set() };
+    e.cantidad += cant; e.costo += costo; e.origenes.add(origen); mp.set(id, e);
+  };
+  for (const l of item.receta || []) {
+    if (esLineaBaseR(l)) {
+      const base = R.porKey.get(kItem('BASE', l.id));
+      const sub = explotarR(base, pila);
+      for (const e of sub.mp.values()) sumar(e.id, e.denominacion, e.categoria, e.cantidad * l.cantidad, e.costo * l.cantidad, 'base');
+      const ind = (base.costoIndirecto + sub.indirectoBases) * l.cantidad;
+      indirectoBases += ind;
+      const explotado = [...sub.mp.values()].reduce((s, e) => s + e.costo, 0) * l.cantidad + ind;
+      ajuste += l.cantidad * l.costo - explotado + sub.ajuste * l.cantidad;
+    } else sumar(l.id, l.denominacion, l.categoria, l.cantidad, l.cantidad * l.costo, 'directo');
+  }
+  for (const l of item.packaging || []) sumar(l.id, l.denominacion, 'PACKAGING', l.cantidad, l.cantidad * l.costo, 'directo');
+  pila.delete(k);
+  const r = { mp, indirectoBases, ajuste };
+  R.expl.set(k, r);
+  return r;
+}
+function usosR() {
+  if (R.usos) return R.usos;
+  const mp = new Map(), bases = new Map();
+  for (const it of recItems()) {
+    for (const e of explotarR(it).mp.values()) {
+      const l = mp.get(e.id) || [];
+      l.push({ item: it, cantidad: e.cantidad, costo: e.costo, directo: e.origenes.has('directo'), viaBase: e.origenes.has('base') });
+      mp.set(e.id, l);
+    }
+    for (const l of it.receta || []) if (esLineaBaseR(l)) { const u = bases.get(l.id) || []; u.push({ item: it, cantidad: l.cantidad, costo: l.cantidad * l.costo }); bases.set(l.id, u); }
+  }
+  R.usos = { mp, bases };
+  return R.usos;
+}
+function simularR(item, cambios, general = 0) {
+  let delta = 0;
+  for (const e of explotarR(item).mp.values()) {
+    const m = R.mp.get(e.id);
+    const actual = m ? m.costo : (e.cantidad ? e.costo / e.cantidad : 0);
+    const nuevo = cambios.has(e.id) ? cambios.get(e.id) : actual * (1 + general / 100);
+    delta += e.cantidad * (nuevo - actual);
+  }
+  return { actual: item.costoTotal, nuevo: item.costoTotal + delta, delta, pct: item.costoTotal ? delta / item.costoTotal * 100 : 0 };
+}
+async function cargarCambiosR(dias = 30) {
+  const desde = new Date(Date.now() - 3 * 3600e3 - dias * 864e5).toISOString().slice(0, 10);
+  if (R.cambios?.desde === desde) return R.cambios;
+  const r = await api('/api/recetas/cambios?desde=' + desde);
+  R.cambios = { desde, historial_desde: r.historial_desde, items: new Map(r.items.map(x => [kItem(x.tipo, x.id), x])), mp: new Map(r.mp.map(x => [x.id, x])) };
+  return R.cambios;
+}
+
+// Precio real (última compra) de una materia prima de Shares, en la unidad de Shares
+function precioRealMp(mpId) {
+  const ins = (R.insPorMp.get(Number(mpId)) || []).filter(i => i.ult_precio);
+  if (!ins.length) return null;
+  const i = ins.sort((a, b) => String(b.ult_fecha || '').localeCompare(String(a.ult_fecha || '')))[0];
+  return { insumo: i, precio: i.ult_precio * (Number(i.shares_factor) || 1) };
+}
+
+// Parecido entre dos nombres (para sugerir la unión insumo ↔ materia prima de Shares)
+const PALABRAS_VACIAS = new Set(['de', 'del', 'la', 'el', 'con', 'sin', 'por', 'para', 'kg', 'kgs', 'lt', 'lts', 'gr', 'grs', 'x', 'un', 'unid', 'bolsa', 'caja', 'bidon', 'pack']);
+const palabras = (s) => new Set(normQ(s).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length >= 3 && !PALABRAS_VACIAS.has(w) && !/^\d+$/.test(w)));
+function parecido(a, b) {
+  const A = palabras(a), B = palabras(b);
+  if (!A.size || !B.size) return 0;
+  let n = 0; for (const w of A) if (B.has(w) || [...B].some(x => x.length >= 5 && w.length >= 5 && (x.startsWith(w.slice(0, 5)) || w.startsWith(x.slice(0, 5))))) n++;
+  return n / Math.max(A.size, B.size);
+}
+function sugerenciasMp(nombre, n = 6) {
+  return [...R.mp.values()].map(m => ({ m, s: parecido(nombre, m.denominacion) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, n);
+}
+
+// Graficos y piezas
+function graficoLineaR(puntos, { alto = 180 } = {}) {
+  if (!puntos.length) return '<div class="vacio">Sin historial todavía.</div>';
+  const hoy = new Date().toISOString().slice(0, 10);
+  const pts = puntos.map(p => ({ t: Date.parse(p.fecha + 'T12:00:00Z'), v: Number(p.valor) || 0, fecha: p.fecha }));
+  if (pts[pts.length - 1].fecha < hoy) pts.push({ t: Date.parse(hoy + 'T12:00:00Z'), v: pts[pts.length - 1].v, fecha: hoy, fin: true });
+  if (pts.length === 1) pts.push({ ...pts[0], t: pts[0].t + 864e5, fin: true });
+  const W = 640, H = alto, pl = 74, pr = 14, pt = 14, pb = 26;
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  let v0 = Math.min(...pts.map(p => p.v)), v1 = Math.max(...pts.map(p => p.v));
+  if (v0 === v1) { v0 = v0 * 0.95; v1 = v1 * 1.05 || 1; }
+  const pad = (v1 - v0) * 0.12; v0 -= pad; v1 += pad;
+  const X = (t) => pl + (t1 === t0 ? 0 : (t - t0) / (t1 - t0)) * (W - pl - pr);
+  const Y = (v) => pt + (1 - (v - v0) / (v1 - v0)) * (H - pt - pb);
+  let d = `M${X(pts[0].t)},${Y(pts[0].v)}`;
+  for (let i = 1; i < pts.length; i++) d += ` H${X(pts[i].t)} V${Y(pts[i].v)}`;
+  const marcas = pts.filter(p => !p.fin).map(p => `<circle cx="${X(p.t)}" cy="${Y(p.v)}" r="3.5" fill="var(--accent)"><title>${fmtF(p.fecha)}: ${$$u(p.v)}</title></circle>`).join('');
+  const ejeY = [v0 + pad, (v0 + v1) / 2, v1 - pad].map(v => `<text x="${pl - 8}" y="${Y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${esc($$u(v))}</text><line x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)" stroke-dasharray="3 4"/>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Evolución del costo" style="display:block;max-width:100%">${ejeY}<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2.2"/>${marcas}
+    <text x="${pl}" y="${H - 6}" font-size="11" fill="var(--muted)">${fmtF(pts[0].fecha)}</text><text x="${W - pr}" y="${H - 6}" font-size="11" fill="var(--muted)" text-anchor="end">hoy</text></svg>`;
+}
+function barraComposicionR(it) {
+  const tot = it.costoTotal || 0;
+  const partes = [['Materia prima y bases', it.costoReceta, 'var(--accent)'], ['Costo indirecto', it.costoIndirecto, 'var(--warn)'], ['Packaging', it.costoPackaging, 'var(--ink)']].filter(p => p[1] > 0);
+  if (!tot) return '';
+  return `<div style="display:flex;height:12px;border-radius:999px;overflow:hidden;background:var(--surface-2)">${partes.map(p => `<span title="${p[0]}" style="width:${p[1] / tot * 100}%;background:${p[2]}"></span>`).join('')}</div>
+    <div class="chips" style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">${partes.map(p => `<span class="small"><i style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${p[2]};margin-right:5px"></i>${p[0]} ${pctTxt(p[1], tot)}</span>`).join('')}</div>`;
+}
+const PERIODOS_R = [[7, '7 días'], [30, '30 días'], [90, '90 días'], [365, '1 año']];
+const selPeriodo = (id, dias) => `<select id="${id}" aria-label="Período">${PERIODOS_R.map(([d, t]) => `<option value="${d}" ${d === dias ? 'selected' : ''}>Variación: últimos ${t}</option>`).join('')}</select>`;
+const avisoHistorialR = (ch) => ch.historial_desde && ch.historial_desde > ch.desde
+  ? `<p class="small muted" style="margin:0 0 12px">${ICO.info} El historial de Shares arranca el ${fmtF(ch.historial_desde)} (la primera vez que se trajeron las recetas): las variaciones se miden desde ahí.</p>` : '';
+
+function sinRecetas(el, titulo) {
+  const s = R.cat?.sync || {};
+  el.innerHTML = `<div class="encabezado"><div><h1>${titulo}</h1></div></div><div class="panel panel-pad"><h2 style="margin-bottom:6px">Todavía no hay recetas de Shares</h2>
+    <p class="muted" style="margin:0 0 12px">${s.shares ? 'La app trae las recetas sola una vez por día, desde las 6 de la mañana. Si querés verlas ya, traelas a mano.' : 'Falta cargar SHARES_USERNAME y SHARES_PASSWORD en el Worker de costos (Cloudflare → Settings → Variables and Secrets).'}</p>
+    ${s.shares && puede('editor') ? `<button class="btn btn-acento" id="b-traer">${ICO.download}Traer recetas desde Shares</button>` : ''}</div>`;
+  const b = $('#b-traer', el); if (b) b.onclick = () => traerRecetas(b);
+}
+// Trae de Shares los dos tipos, de a uno (cada pedido trae un tipo: así no se pasa del tiempo de procesador del plan gratuito)
+async function traerRecetas(boton, forzar = false) {
+  await conBoton(boton, async () => {
+    toast('Trayendo recetas desde Shares…');
+    const r1 = await api('/api/recetas/sincronizar', { method: 'POST', body: { tipo: 'PRODUCTO_TERMINADO', forzar } });
+    const r2 = await api('/api/recetas/sincronizar', { method: 'POST', body: { tipo: 'BASE', forzar } });
+    await cargarRecetas(true);
+    if (r1.salteada && r2.salteada) toast('Ya estaba actualizado (hace menos de 5 minutos).');
+    else toast(`✓ ${r1.cantidad} productos y ${r2.cantidad} bases${r1.primera ? '' : ` · ${(r1.cambios || 0) + (r2.cambios || 0)} cambios de costo`}`);
+    await router();
+  });
+}
+
+// ---------------------------------------------------------------------------
+//  Productos terminados y bases
+// ---------------------------------------------------------------------------
+async function vistaRecLista(el, tipo) {
+  await cargarRecetas();
+  const esPT = tipo === 'PRODUCTO_TERMINADO', titulo = esPT ? 'Productos terminados' : 'Bases';
+  const lista = recItems(tipo);
+  if (!lista.length) return sinRecetas(el, titulo);
+  const rubros = [...new Set(lista.map(i => i.rubro).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  let q = '', rubro = sessionStorage.getItem('rubro_' + tipo) || '', dias = Number(sessionStorage.getItem('rec_periodo')) || 30, ch;
+  el.innerHTML = `<div class="encabezado"><div><h1>${titulo}</h1><p>${esPT ? 'Costo de cada producto según Shares: materia prima y bases, costo indirecto del rubro y packaging.' : 'Recetas intermedias que se usan dentro de los productos (y a veces dentro de otras bases).'} Tocá uno para ver su receta.</p></div>
+    <div class="acciones"><button class="btn" id="b-exp">${ICO.download}Descargar Excel</button></div></div>
+    <div class="panel"><div class="cola-bar"><label class="campo-buscar">${ICO.search}<input id="q" placeholder="Nombre o código"></label>
+      <select id="f-r" style="max-width:220px"><option value="">Todos los rubros</option>${rubros.map(r => `<option ${r === rubro ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>${selPeriodo('f-p', dias)}</div>
+      <div class="tabla-wrap"><table><thead><tr><th>Código</th><th>${esPT ? 'Producto' : 'Base'}</th><th>Rubro</th><th class="num">Costo total</th><th class="num">Materia prima</th><th class="num">Indirecto</th>${esPT ? '<th class="num">Packaging</th>' : ''}<th class="num">Variación</th></tr></thead><tbody id="tb"></tbody></table></div>
+      <div class="paginacion" id="pag"></div></div>`;
+  const pintar = async () => {
+    ch = await cargarCambiosR(dias);
+    const qq = normQ(q);
+    const f = lista.filter(i => (!rubro || i.rubro === rubro) && (!qq || normQ(i.denominacion).includes(qq) || String(i.id) === qq.trim()));
+    $('#tb').innerHTML = f.map(i => { const a = ch.items.get(kItem(i.tipo, i.id)); const p = varPctR(a?.costoTotal, i.costoTotal);
+      return `<tr class="click" data-href="#/receta/${i.tipo}/${i.id}"><td class="mono">${i.id}</td><td>${esc(i.denominacion)}</td><td class="small">${esc(i.rubro || '—')}</td>
+        <td class="num" data-orden="${i.costoTotal}"><b>${$$m(i.costoTotal)}</b></td><td class="num" data-orden="${i.costoReceta}">${$$m(i.costoReceta)}</td><td class="num" data-orden="${i.costoIndirecto}">${$$m(i.costoIndirecto)}</td>
+        ${esPT ? `<td class="num" data-orden="${i.costoPackaging}">${$$m(i.costoPackaging)}</td>` : ''}<td class="num" data-orden="${p ?? ''}">${chipVarR(a?.costoTotal, i.costoTotal)}</td></tr>`; }).join('') || '<tr><td colspan="8" class="vacio">Nada con ese filtro.</td></tr>';
+    $('#pag').innerHTML = `<span>${f.length} de ${lista.length}</span>${ch.historial_desde && ch.historial_desde > ch.desde ? `<span class="small muted">Variación desde el ${fmtF(ch.historial_desde)} (inicio del historial)</span>` : ''}`;
+    irA($('#tb'));
+  };
+  let t;
+  $('#q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { q = e.target.value; pintar(); }, 200); };
+  $('#f-r').onchange = (e) => { rubro = e.target.value; sessionStorage.setItem('rubro_' + tipo, rubro); pintar(); };
+  $('#f-p').onchange = (e) => { dias = Number(e.target.value); sessionStorage.setItem('rec_periodo', dias); pintar(); };
+  $('#b-exp').onclick = () => {
+    const filas = [['Código', esPT ? 'Producto' : 'Base', 'Rubro', 'Costo total', 'Materia prima y bases', 'Costo indirecto', ...(esPT ? ['Packaging'] : []), `Costo hace ${dias} días`, 'Variación %']];
+    for (const i of lista) { const a = ch.items.get(kItem(i.tipo, i.id)); const p = varPctR(a?.costoTotal, i.costoTotal);
+      filas.push([i.id, i.denominacion, i.rubro, i.costoTotal, i.costoReceta, i.costoIndirecto, ...(esPT ? [i.costoPackaging] : []), a?.costoTotal ?? '', p == null ? '' : Math.round(p * 100) / 100]); }
+    descargarXlsx(`${esPT ? 'productos' : 'bases'}-costos.xlsx`, [[titulo, filas, [8, 40, 18, 14, 16, 14, 14, 14, 12]]]);
+  };
+  await pintar();
+}
+
+async function vistaRecItem(el, tipo, id) {
+  await cargarRecetas();
+  const it = R.porKey.get(kItem(tipo, Number(id)));
+  if (!it) { el.innerHTML = '<div class="panel panel-pad">No existe (o ya no figura en Shares).</div>'; return; }
+  const esPT = tipo === 'PRODUCTO_TERMINADO', ex = explotarR(it), tot = it.costoTotal || 0;
+  const tieneBases = (it.receta || []).some(esLineaBaseR);
+  const usadoEn = !esPT ? (usosR().bases.get(it.id) || []) : [];
+  // Costo con precios reales: las materias primas unidas a un insumo, al precio de su última compra
+  const reales = new Map();
+  for (const e of ex.mp.values()) { const pr = precioRealMp(e.id); if (pr) reales.set(e.id, pr.precio); }
+  const sReal = reales.size ? simularR(it, reales) : null;
+  const filaLinea = (l, pack = false) => {
+    const base = !pack && esLineaBaseR(l), sub = l.cantidad * l.costo;
+    const pr = !base ? precioRealMp(l.id) : null;
+    return `<tr class="click" data-href="${base ? `#/receta/BASE/${l.id}` : `#/mp/${l.id}`}"><td class="mono">${l.id}</td><td>${esc(l.denominacion)}${base ? ' <span class="badge b-warn">base</span>' : ''}</td>
+      <td class="num mono">${fmtCantR(l.cantidad)}</td><td class="num">${$$u(l.costo)}${pr ? `<small class="sub-celda" title="Última compra de ${esc(pr.insumo.nombre)}">compra ${$$u(pr.precio)} ${chipVarR(l.costo, pr.precio)}</small>` : ''}</td>
+      <td class="num"><b>${$$m(sub)}</b></td><td class="num">${pctTxt(sub, tot)}</td></tr>`;
+  };
+  const cab = '<thead><tr><th>Código</th><th>Insumo</th><th class="num">Cantidad</th><th class="num">Costo unitario</th><th class="num">Subtotal</th><th class="num">% del costo</th></tr></thead>';
+  el.innerHTML = `<div class="encabezado"><div><a class="btn btn-ghost btn-chico" href="#/${esPT ? 'productos' : 'bases'}">${ICO.back}${esPT ? 'Productos terminados' : 'Bases'}</a>
+      <h1 style="margin-top:6px">${esc(it.denominacion)}</h1><p>${TIPO_TXT[tipo]} ${it.id} · rubro ${esc(it.rubro || '—')} · costos según Shares</p></div>
+    <div class="acciones"><button class="btn" id="b-exp">${ICO.download}Descargar receta</button><a class="btn" href="#/simulador" id="b-sim">${ICO.calc}Simular</a></div></div>
+    <div class="kpis">
+      ${kpiR('Costo total (Shares)', $$m(tot), 'Por unidad del producto')}
+      ${kpiR('Materia prima y bases', $$m(it.costoReceta), pctTxt(it.costoReceta, tot) + ' del total')}
+      ${kpiR('Costo indirecto', $$m(it.costoIndirecto), pctTxt(it.costoIndirecto, tot) + ' · del rubro')}
+      ${sReal ? kpiR('Con precios de compra', $$m(sReal.nuevo), `${chipVar(sReal.pct)} · ${reales.size} de ${ex.mp.size} materias primas con compra`, { clase: Math.abs(sReal.pct) >= 5 ? 'alerta' : '' })
+        : esPT ? kpiR('Packaging', $$m(it.costoPackaging), pctTxt(it.costoPackaging, tot) + ' del total') : kpiR('Se usa en', usadoEn.length, 'productos o bases')}
+    </div>
+    <div class="panel panel-pad" style="margin-bottom:16px">${barraComposicionR(it)}</div>
+    <div class="panel"><div class="panel-titulo"><h2>Receta</h2><span class="small muted">Tal como está en Shares · debajo del costo, la última compra si la materia prima está unida a un insumo</span></div>
+      <div class="tabla-wrap"><table>${cab}<tbody>${(it.receta || []).map(l => filaLinea(l)).join('') || '<tr><td colspan="6" class="vacio">Sin renglones.</td></tr>'}</tbody></table></div></div>
+    ${(it.packaging || []).length ? `<div class="panel"><div class="panel-titulo"><h2>Packaging</h2></div><div class="tabla-wrap"><table>${cab}<tbody>${it.packaging.map(l => filaLinea(l, true)).join('')}</tbody></table></div></div>` : ''}
+    ${tieneBases ? `<div class="panel"><div class="panel-titulo"><h2>Abierto a materia prima</h2><span class="small muted">Las bases se abren en sus insumos, para ver cuánto pesa cada materia prima</span></div>
+      <div class="tabla-wrap"><table><thead><tr><th>Código</th><th>Materia prima</th><th class="num">Cantidad total</th><th class="num">Costo unitario</th><th class="num">Subtotal</th><th class="num">% del costo</th></tr></thead><tbody>
+      ${[...ex.mp.values()].sort((a, b) => b.costo - a.costo).map(e => `<tr class="click" data-href="#/mp/${e.id}"><td class="mono">${e.id}</td><td>${esc(e.denominacion)}${e.categoria === 'PACKAGING' ? ' <span class="badge">packaging</span>' : ''}</td><td class="num mono">${fmtCantR(e.cantidad)}</td><td class="num">${$$u(e.cantidad ? e.costo / e.cantidad : 0)}</td><td class="num"><b>${$$m(e.costo)}</b></td><td class="num">${pctTxt(e.costo, tot)}</td></tr>`).join('')}
+      ${ex.indirectoBases ? `<tr><td></td><td><i>Costo indirecto de las bases</i></td><td></td><td></td><td class="num">${$$m(ex.indirectoBases)}</td><td class="num">${pctTxt(ex.indirectoBases, tot)}</td></tr>` : ''}
+      <tr><td></td><td><i>Costo indirecto del producto</i></td><td></td><td></td><td class="num">${$$m(it.costoIndirecto)}</td><td class="num">${pctTxt(it.costoIndirecto, tot)}</td></tr>
+      ${Math.abs(ex.ajuste) >= 0.01 ? `<tr><td></td><td><i title="Diferencia entre el costo de la base que figura en esta receta y su costo actual en Shares">Ajuste por costo de bases</i></td><td></td><td></td><td class="num">${$$m(ex.ajuste)}</td><td class="num">${pctTxt(ex.ajuste, tot)}</td></tr>` : ''}
+      </tbody></table></div></div>` : ''}
+    ${!esPT ? `<div class="panel"><div class="panel-titulo"><h2>Dónde se usa esta base</h2></div>${usadoEn.length ? `<div class="tabla-wrap"><table><thead><tr><th>Código</th><th>Producto / base</th><th class="num">Cantidad</th><th class="num">Costo en la receta</th><th class="num">% de su costo</th></tr></thead><tbody>
+      ${usadoEn.sort((a, b) => b.costo - a.costo).map(u => `<tr class="click" data-href="#/receta/${u.item.tipo}/${u.item.id}"><td class="mono">${u.item.id}</td><td>${esc(u.item.denominacion)}<small class="sub-celda">${TIPO_TXT[u.item.tipo]}</small></td><td class="num mono">${fmtCantR(u.cantidad)}</td><td class="num">${$$m(u.costo)}</td><td class="num">${pctTxt(u.costo, u.item.costoTotal)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vacio">Ningún producto activo usa esta base.</div>'}</div>` : ''}
+    <div class="panel"><div class="panel-titulo"><h2>Evolución del costo en Shares</h2><span class="small muted" id="h-ayuda"></span></div><div class="panel-pad" id="hist"><span class="cargando"></span></div></div>`;
+  irA(el);
+  $('#b-sim').onclick = () => sessionStorage.setItem('sim_filtro', it.denominacion);
+  $('#b-exp').onclick = () => {
+    const filas = [[`${TIPO_TXT[tipo]} ${it.id}`, it.denominacion], ['Rubro', it.rubro], ['Costo total', tot], ['Materia prima y bases', it.costoReceta], ['Costo indirecto', it.costoIndirecto], ['Packaging', it.costoPackaging], [],
+      ['Sección', 'Código', 'Insumo', 'Categoría', 'Cantidad', 'Costo unitario', 'Subtotal', '% del costo']];
+    for (const l of it.receta || []) filas.push(['Receta', l.id, l.denominacion, l.categoria, l.cantidad, l.costo, l.cantidad * l.costo, tot ? l.cantidad * l.costo / tot : '']);
+    for (const l of it.packaging || []) filas.push(['Packaging', l.id, l.denominacion, l.categoria, l.cantidad, l.costo, l.cantidad * l.costo, tot ? l.cantidad * l.costo / tot : '']);
+    const hojas = [['Receta', filas, [14, 9, 40, 22, 12, 14, 14, 10]]];
+    if (tieneBases) hojas.push(['Abierto a materia prima', [['Código', 'Materia prima', 'Cantidad total', 'Costo unitario', 'Subtotal', '% del costo'],
+      ...[...ex.mp.values()].map(e => [e.id, e.denominacion, e.cantidad, e.cantidad ? e.costo / e.cantidad : 0, e.costo, tot ? e.costo / tot : '']),
+      ['', 'Costo indirecto de las bases', '', '', ex.indirectoBases, ''], ['', 'Costo indirecto del producto', '', '', it.costoIndirecto, ''], ['', 'Ajuste por costo de bases', '', '', ex.ajuste, '']], [9, 40, 14, 14, 14, 10]]);
+    descargarXlsx(`receta-${it.id}-${it.denominacion.slice(0, 40).replace(/[\\/:*?"<>|]/g, '')}.xlsx`, hojas);
+  };
+  const h = (await api(`/api/recetas/historial/${tipo}/${it.id}`)).historial;
+  $('#hist').innerHTML = graficoLineaR(h.map(x => ({ fecha: x.fecha, valor: x.costo_total }))) + (h.length > 1 ? `<div class="tabla-wrap" style="margin-top:12px"><table class="sin-orden"><thead><tr><th>Desde</th><th class="num">Costo total</th><th class="num">Materia prima</th><th class="num">Indirecto</th>${esPT ? '<th class="num">Packaging</th>' : ''}<th class="num">Variación</th></tr></thead><tbody>
+    ${h.map((x, i) => `<tr><td class="mono">${fmtF(x.fecha)}</td><td class="num">${$$m(x.costo_total)}</td><td class="num">${$$m(x.costo_receta)}</td><td class="num">${$$m(x.costo_indirecto)}</td>${esPT ? `<td class="num">${$$m(x.costo_packaging)}</td>` : ''}<td class="num">${i ? chipVarR(h[i - 1].costo_total, x.costo_total) : '<span class="muted">inicio</span>'}</td></tr>`).reverse().join('')}</tbody></table></div>` : '');
+  $('#h-ayuda').textContent = h.length ? `Registrado desde el ${fmtF(h[0].fecha)}` : '';
+}
+
+// ---------------------------------------------------------------------------
+//  Materias primas de Shares
+// ---------------------------------------------------------------------------
+async function vistaMPs(el) {
+  await cargarRecetas();
+  if (!R.cat.items.length) return sinRecetas(el, 'Materias primas de Shares');
+  const u = usosR();
+  const activas = [...R.mp.values()].filter(m => u.mp.has(m.id));
+  let q = '', dias = Number(sessionStorage.getItem('rec_periodo')) || 30, solo = sessionStorage.getItem('mp_solo') || '', ch;
+  const nPT = (id) => (u.mp.get(id) || []).filter(x => x.item.tipo === 'PRODUCTO_TERMINADO').length;
+  el.innerHTML = `<div class="encabezado"><div><h1>Materias primas de Shares</h1><p>El costo unitario que usa Shares en las recetas, en cuántos productos pesa y, si está unida a un insumo de esta app, el precio de la última compra.</p></div>
+    <div class="acciones"><button class="btn" id="b-exp">${ICO.download}Descargar Excel</button></div></div>
+    <div class="panel"><div class="cola-bar"><label class="campo-buscar">${ICO.search}<input id="q" placeholder="Nombre o código"></label>
+      <select id="f-s" style="max-width:240px"><option value="">Todas</option><option value="unidas" ${solo === 'unidas' ? 'selected' : ''}>Unidas a un insumo</option><option value="sin" ${solo === 'sin' ? 'selected' : ''}>Sin unir</option></select>${selPeriodo('f-p', dias)}</div>
+      <div class="tabla-wrap"><table><thead><tr><th>Código</th><th>Materia prima</th><th class="num">Costo en Shares</th><th class="num">Última compra</th><th class="num">Compra vs Shares</th><th class="num">Productos</th><th class="num">Variación en Shares</th></tr></thead><tbody id="tb"></tbody></table></div>
+      <div class="paginacion" id="pag"></div></div>`;
+  const pintar = async () => {
+    ch = await cargarCambiosR(dias);
+    const qq = normQ(q);
+    const f = activas.filter(m => (!qq || normQ(m.denominacion).includes(qq) || String(m.id) === qq.trim()) && (!solo || (solo === 'unidas') === R.insPorMp.has(m.id)));
+    $('#tb').innerHTML = f.map(m => { const a = ch.mp.get(m.id), pr = precioRealMp(m.id), n = nPT(m.id), dif = pr ? varPctR(m.costo, pr.precio) : null;
+      return `<tr class="click" data-href="#/mp/${m.id}"><td class="mono">${m.id}</td><td>${esc(m.denominacion)}${R.insPorMp.has(m.id) ? `<small class="sub-celda">${ICO.link} ${esc(R.insPorMp.get(m.id).map(i => i.nombre).join(', '))}</small>` : ''}</td>
+        <td class="num" data-orden="${m.costo}"><b>${$$u(m.costo)}</b></td><td class="num" data-orden="${pr?.precio ?? ''}">${pr ? `${$$u(pr.precio)}<small class="sub-celda">${fmtF(pr.insumo.ult_fecha)}</small>` : '<span class="muted">—</span>'}</td>
+        <td class="num" data-orden="${dif ?? ''}">${dif === null ? '<span class="muted">—</span>' : chipVar(dif, { titulo: 'Última compra contra el costo que usa Shares' })}</td>
+        <td class="num" data-orden="${n}">${n || '<span class="muted">—</span>'}</td><td class="num" data-orden="${varPctR(a?.costo, m.costo) ?? ''}">${chipVarR(a?.costo, m.costo)}</td></tr>`; }).join('') || '<tr><td colspan="7" class="vacio">Nada con ese filtro.</td></tr>';
+    $('#pag').innerHTML = `<span>${f.length} de ${activas.length}</span>`;
+    irA($('#tb'));
+  };
+  let t;
+  $('#q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { q = e.target.value; pintar(); }, 200); };
+  $('#f-s').onchange = (e) => { solo = e.target.value; sessionStorage.setItem('mp_solo', solo); pintar(); };
+  $('#f-p').onchange = (e) => { dias = Number(e.target.value); sessionStorage.setItem('rec_periodo', dias); pintar(); };
+  $('#b-exp').onclick = () => descargarXlsx('materias-primas-shares.xlsx', [['Materias primas', [['Código', 'Materia prima', 'Costo en Shares', 'Insumo unido', 'Última compra (unidad de Shares)', 'Fecha compra', 'Compra vs Shares %', 'Productos que la usan', `Costo Shares hace ${dias} días`],
+    ...activas.map(m => { const a = ch.mp.get(m.id), pr = precioRealMp(m.id); return [m.id, m.denominacion, m.costo, pr?.insumo.nombre || '', pr?.precio ?? '', pr?.insumo.ult_fecha || '', pr ? Math.round(varPctR(m.costo, pr.precio) * 100) / 100 : '', nPT(m.id), a?.costo ?? '']; })], [9, 40, 14, 26, 16, 12, 12, 10, 14]]]);
+  await pintar();
+}
+
+async function vistaMP(el, id) {
+  await cargarRecetas();
+  const m = R.mp.get(Number(id));
+  if (!m) { el.innerHTML = '<div class="panel panel-pad">No existe (o ya no figura en ninguna receta).</div>'; return; }
+  const lista = (usosR().mp.get(m.id) || []).sort((a, b) => (b.costo / (b.item.costoTotal || 1)) - (a.costo / (a.item.costoTotal || 1)));
+  const pts = lista.filter(x => x.item.tipo === 'PRODUCTO_TERMINADO');
+  const unidos = R.insPorMp.get(m.id) || [], pr = precioRealMp(m.id);
+  el.innerHTML = `<div class="encabezado"><div><a class="btn btn-ghost btn-chico" href="#/mp">${ICO.back}Materias primas de Shares</a>
+      <h1 style="margin-top:6px">${esc(m.denominacion)}</h1><p>Materia prima ${m.id} de Shares · ${esc(m.categoria || '')}</p></div>
+    ${puede('editor') ? `<div class="acciones"><button class="btn btn-negro" id="b-unir">${ICO.link}${unidos.length ? 'Cambiar insumo unido' : 'Unir con un insumo'}</button></div>` : ''}</div>
+    <div class="kpis">
+      ${kpiR('Costo en Shares', $$u(m.costo), m.costos_distintos > 1 ? 'Figura con costos distintos en distintas recetas' : 'Costo unitario de las recetas')}
+      ${kpiR('Última compra', pr ? $$u(pr.precio) : '—', pr ? `${esc(pr.insumo.nombre)} · ${fmtF(pr.insumo.ult_fecha)} · ${esc(pr.insumo.ult_proveedor || '')}` : (unidos.length ? 'Sin compras todavía' : 'No está unida a un insumo'), pr ? { href: '#/insumo/' + pr.insumo.id } : {})}
+      ${kpiR('Compra vs Shares', pr ? chipVar(varPctR(m.costo, pr.precio)) : '—', pr ? 'Si es positivo, Shares costea por debajo de lo que se paga' : '', pr && Math.abs(varPctR(m.costo, pr.precio)) >= (S.cfg?.umbral_shares_pct || 10) ? { clase: 'alerta' } : {})}
+      ${kpiR('Productos que la usan', pts.length, `${lista.length - pts.length} bases`)}
+    </div>
+    <div class="panel panel-pad" style="margin-bottom:16px"><h2 style="margin-bottom:10px">¿Y si cambia el costo?</h2>
+      <div class="fila" style="align-items:end;display:flex;gap:12px;flex-wrap:wrap"><div class="campo"><label for="s-pct">Variación %</label><input id="s-pct" type="number" step="0.1" placeholder="Ej. 10"></div>
+        <div class="campo"><label for="s-nuevo">o costo nuevo</label><input id="s-nuevo" type="number" step="0.01" placeholder="${esc(String(m.costo))}"></div>
+        ${pr ? `<div class="campo"><button class="btn" id="s-real">Usar la última compra (${esc($$u(pr.precio))})</button></div>` : ''}</div>
+      <p class="small muted" id="s-res" style="margin:4px 0 0">Escribí un porcentaje o un costo nuevo y la tabla muestra cómo queda cada producto.</p></div>
+    <div class="panel"><div class="panel-titulo"><h2>Dónde se usa</h2><span class="small muted">Directo en la receta o dentro de una base</span></div>
+      ${lista.length ? `<div class="tabla-wrap"><table><thead><tr><th>Código</th><th>Producto / base</th><th>Cómo</th><th class="num">Cantidad</th><th class="num">Costo en el producto</th><th class="num">% de su costo</th><th class="num">Costo nuevo</th><th class="num">Impacto</th></tr></thead><tbody>
+      ${lista.map((u, i) => `<tr class="click" data-href="#/receta/${u.item.tipo}/${u.item.id}"><td class="mono">${u.item.id}</td><td>${esc(u.item.denominacion)}<small class="sub-celda">${TIPO_TXT[u.item.tipo]}</small></td>
+        <td class="small">${u.directo && u.viaBase ? 'directo y en bases' : u.directo ? 'directo' : 'dentro de una base'}</td><td class="num mono">${fmtCantR(u.cantidad)}</td><td class="num">${$$m(u.costo)}</td>
+        <td class="num">${pctTxt(u.costo, u.item.costoTotal)}</td><td class="num" data-n="${i}">—</td><td class="num" data-p="${i}">—</td></tr>`).join('')}</tbody></table></div>` : '<div class="vacio">No figura en ninguna receta activa.</div>'}</div>
+    <div class="panel"><div class="panel-titulo"><h2>Evolución del costo en Shares</h2></div><div class="panel-pad" id="hist"><span class="cargando"></span></div></div>`;
+  irA(el);
+  const recalcular = (nuevoForzado = null) => {
+    const pct = parseFloat($('#s-pct').value), nt = parseFloat($('#s-nuevo').value);
+    const nuevo = nuevoForzado ?? (Number.isFinite(nt) ? nt : (Number.isFinite(pct) ? m.costo * (1 + pct / 100) : null));
+    lista.forEach((u, i) => {
+      const n = $(`[data-n="${i}"]`), p = $(`[data-p="${i}"]`);
+      if (nuevo == null) { n.textContent = '—'; p.textContent = '—'; return; }
+      const s = simularR(u.item, new Map([[m.id, nuevo]]));
+      n.textContent = $$m(s.nuevo); p.innerHTML = chipVar(s.pct);
+    });
+    $('#s-res').innerHTML = nuevo == null ? 'Escribí un porcentaje o un costo nuevo y la tabla muestra cómo queda cada producto.' : `Con la materia prima a <b>${$$u(nuevo)}</b> (${chipVar(varPctR(m.costo, nuevo))}). Solo cambia esta materia prima.`;
+  };
+  $('#s-pct').oninput = () => { $('#s-nuevo').value = ''; recalcular(); };
+  $('#s-nuevo').oninput = () => { $('#s-pct').value = ''; recalcular(); };
+  const br = $('#s-real'); if (br) br.onclick = () => { $('#s-pct').value = ''; $('#s-nuevo').value = Math.round(pr.precio * 100) / 100; recalcular(pr.precio); };
+  const bu = $('#b-unir'); if (bu) bu.onclick = () => modalUnirDesdeMp(m);
+  const h = (await api('/api/recetas/historial-mp/' + m.id)).historial;
+  $('#hist').innerHTML = graficoLineaR(h.map(x => ({ fecha: x.fecha, valor: x.costo })));
+}
+
+// ---------------------------------------------------------------------------
+//  Unir insumo ↔ materia prima de Shares
+// ---------------------------------------------------------------------------
+function formEquivalencia(ins, m, factor) {
+  return `<div class="campo"><label>Equivalencia</label><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">1 unidad de Shares de <b>${esc(m?.denominacion || 'la materia prima')}</b> = <input name="shares_factor" type="number" step="any" min="0" value="${esc(factor ?? 1)}" style="width:110px"> ${esc(UNI[ins?.unidad] || 'kg')} de <b>${esc(ins?.nombre || 'el insumo')}</b></div>
+    <div class="ayuda">Casi siempre es 1 (Shares y esta app miden por kg o litro). Si Shares mide por caja, bolsa o gramo, poné cuánto es en ${esc(UNI_C[ins?.unidad] || 'kg')}: así se compara el mismo peso.</div></div>`;
+}
+async function guardarUnion(insId, codigo, factor) {
+  await api('/api/insumos/' + insId, { method: 'PUT', body: { codigo_shares: codigo, shares_factor: codigo ? (Number(factor) || 1) : null } });
+  await cargarRecetas(true);
+}
+async function modalUnirDesdeInsumo(ins) {
+  await cargarRecetas();
+  if (!R.mp.size) { toast('Todavía no hay recetas de Shares: traelas desde Configuración → Salud.', true); return; }
+  const sug = sugerenciasMp(ins.nombre);
+  const ops = [...R.mp.values()].filter(m => usosR().mp.has(m.id)).sort((a, b) => a.denominacion.localeCompare(b.denominacion, 'es'));
+  const actual = ins.codigo_shares ? Number(ins.codigo_shares) : (sug[0]?.m.id || '');
+  modal(`<h2>Unir con Shares</h2><p class="muted" style="margin-top:-6px">¿Qué materia prima de Shares es <b>${esc(ins.nombre)}</b>? Así se compara el costo que usa Shares con el precio de la última compra.</p>
+    <form id="f-us">${sug.length ? `<div class="campo"><label>Sugerencias por nombre</label><div class="chips" style="display:flex;gap:6px;flex-wrap:wrap">${sug.map(x => `<button type="button" class="btn btn-chico" data-sug="${x.m.id}">${esc(x.m.denominacion)} · ${$$u(x.m.costo)}</button>`).join('')}</div></div>` : ''}
+    <div class="campo"><label>Materia prima de Shares</label><select id="us-mp">${ops.map(m => `<option value="${m.id}" data-nombre="${esc(m.denominacion)}" data-extra="${m.id} · ${esc($$u(m.costo))}" ${m.id === actual ? 'selected' : ''}>${esc(m.denominacion)}</option>`).join('')}</select></div>
+    ${formEquivalencia(ins, null, ins.shares_factor || 1)}
+    <div class="acciones" style="justify-content:space-between">${ins.codigo_shares ? '<button type="button" class="btn btn-rojo" id="us-quitar">Quitar la unión</button>' : '<span></span>'}<button class="btn btn-negro" type="submit">Unir</button></div></form>`, {
+    ancho: true,
+    alMontar: (el, cerrar) => {
+      const sel = $('#us-mp', el); comboSelect(sel, { placeholder: 'Escribí para buscar la materia prima…' });
+      $$('[data-sug]', el).forEach(b => b.onclick = () => { sel.value = b.dataset.sug; const c = $('.combo-in', el); if (c) c.value = R.mp.get(Number(b.dataset.sug))?.denominacion || ''; });
+      $('#f-us', el).onsubmit = (e) => { e.preventDefault(); conBoton($('button[type=submit]', e.target), async () => { await guardarUnion(ins.id, sel.value, e.target.elements.shares_factor.value); cerrar(); toast('Unido con Shares'); router(); }); };
+      const q = $('#us-quitar', el); if (q) q.onclick = () => conBoton(q, async () => { await guardarUnion(ins.id, null, null); cerrar(); toast('Unión quitada'); router(); });
+    },
+  });
+}
+async function modalUnirDesdeMp(m) {
+  const r = await api('/api/insumos');
+  const ins = r.insumos.filter(i => i.activo);
+  const sug = ins.map(i => ({ i, s: parecido(m.denominacion, i.nombre) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 6);
+  const actual = (R.insPorMp.get(m.id) || [])[0]?.id || sug[0]?.i.id || '';
+  modal(`<h2>Unir con un insumo</h2><p class="muted" style="margin-top:-6px">¿Qué insumo de esta app es <b>${esc(m.denominacion)}</b> de Shares? Sus compras se comparan con el costo que usa Shares.</p>
+    <form id="f-um">${sug.length ? `<div class="campo"><label>Sugerencias por nombre</label><div class="chips" style="display:flex;gap:6px;flex-wrap:wrap">${sug.map(x => `<button type="button" class="btn btn-chico" data-sug="${x.i.id}">${esc(x.i.nombre)}${x.i.ult_precio ? ' · ' + esc($$u(x.i.ult_precio)) : ''}</button>`).join('')}</div></div>` : ''}
+    <div class="campo"><label>Insumo</label><select id="um-ins">${ins.map(i => `<option value="${i.id}" data-nombre="${esc(i.nombre)}" data-extra="${esc(UNI_C[i.unidad])}${i.rubro ? ' · ' + esc(i.rubro) : ''}" ${i.id === actual ? 'selected' : ''}>${esc(i.nombre)}</option>`).join('')}</select></div>
+    <div id="um-eq"></div>
+    <div class="acciones"><button class="btn btn-negro" type="submit">Unir</button></div></form>`, {
+    ancho: true,
+    alMontar: (el, cerrar) => {
+      const sel = $('#um-ins', el); comboSelect(sel, { placeholder: 'Escribí para buscar el insumo…' });
+      const eq = () => { const i = ins.find(x => String(x.id) === sel.value); $('#um-eq', el).innerHTML = formEquivalencia(i, m, i?.codigo_shares === String(m.id) ? i.shares_factor : 1); };
+      sel.addEventListener('change', eq); eq();
+      $$('[data-sug]', el).forEach(b => b.onclick = () => { sel.value = b.dataset.sug; const c = $('.combo-in', el); if (c) c.value = ins.find(x => String(x.id) === b.dataset.sug)?.nombre || ''; eq(); });
+      $('#f-um', el).onsubmit = (e) => {
+        e.preventDefault();
+        const i = ins.find(x => String(x.id) === sel.value);
+        conBoton($('button[type=submit]', e.target), async () => {
+          if (i.codigo_shares && i.codigo_shares !== String(m.id) && !await confirmar(`${i.nombre} ya está unido a otra materia prima de Shares (${R.mp.get(Number(i.codigo_shares))?.denominacion || i.codigo_shares}). ¿Cambiarlo por esta?`)) return;
+          await guardarUnion(i.id, m.id, e.target.elements.shares_factor.value); cerrar(); toast('Unido'); router();
+        });
+      };
+    },
+  });
+}
+
+// Panel "Costo en Shares" dentro de la ficha de un insumo de esta app
+async function panelSharesInsumo(cont, ins) {
+  try { await cargarRecetas(); } catch { cont.innerHTML = ''; return; }
+  if (!R.cat.items.length) { cont.innerHTML = ''; return; }
+  const m = ins.codigo_shares ? R.mp.get(Number(ins.codigo_shares)) : null;
+  const umbral = S.cfg?.umbral_shares_pct || 10;
+  if (!m) {
+    const sug = sugerenciasMp(ins.nombre, 3);
+    cont.innerHTML = `<div class="panel panel-pad" style="margin-bottom:16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap">${ICO.balanza}<div style="flex:1;min-width:220px"><b>Sin unir con Shares</b>
+      <div class="small muted">Unilo con su materia prima de Shares para comparar el costo que usa Shares con lo que se paga${sug.length ? ` (¿${esc(sug[0].m.denominacion)}?)` : ''}.</div></div>
+      ${puede('editor') ? `<button class="btn" id="b-us">${ICO.link}Unir con Shares</button>` : ''}</div>`;
+  } else {
+    const real = ins.ult_precio ? ins.ult_precio * (Number(ins.shares_factor) || 1) : null, dif = real ? varPctR(m.costo, real) : null;
+    const n = (usosR().mp.get(m.id) || []).filter(x => x.item.tipo === 'PRODUCTO_TERMINADO').length;
+    cont.innerHTML = `<div class="panel panel-pad" style="margin-bottom:16px;${dif !== null && Math.abs(dif) >= umbral ? 'border-color:var(--warn)' : ''}"><div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">${ICO.balanza}
+      <div style="flex:1;min-width:220px"><b>En Shares: <a href="#/mp/${m.id}">${esc(m.denominacion)}</a></b><div class="small muted">Costo en Shares ${$$u(m.costo)}${Number(ins.shares_factor) !== 1 && ins.shares_factor ? ` · 1 unidad de Shares = ${fmtCantR(ins.shares_factor)} ${esc(UNI_C[ins.unidad])}` : ''} · se usa en ${n} producto${n === 1 ? '' : 's'}</div></div>
+      <div style="text-align:right"><div class="small muted">Última compra vs Shares</div><div style="font:700 18px var(--display)">${dif === null ? '—' : chipVar(dif)}</div></div>
+      ${puede('editor') ? `<button class="btn btn-chico" id="b-us">${ICO.pencil}Cambiar</button>` : ''}</div>
+      ${dif !== null && Math.abs(dif) >= umbral ? `<p class="small" style="margin:10px 0 0">${dif > 0 ? `<b>Shares está costeando por debajo de lo que se paga.</b> Los ${n} productos que la usan están subcosteados.` : '<b>Shares está costeando por encima de lo que se paga.</b>'} <a href="#/mp/${m.id}">Ver el impacto en cada producto</a></p>` : ''}</div>`;
+  }
+  const b = $('#b-us', cont); if (b) b.onclick = () => modalUnirDesdeInsumo(ins);
+}
+
+// ---------------------------------------------------------------------------
+//  Shares vs compras: ¿Shares costea con el precio real?
+// ---------------------------------------------------------------------------
+async function vistaComparar(el) {
+  await cargarRecetas();
+  if (!R.cat.items.length) return sinRecetas(el, 'Shares vs compras');
+  const umbral = S.cfg?.umbral_shares_pct || (S.cfg = (await api('/api/config').catch(() => ({ config: {} }))).config).umbral_shares_pct || 10;
+  const u = usosR();
+  const unidos = R.ins.filter(i => i.codigo_shares && R.mp.has(Number(i.codigo_shares))).map(i => {
+    const m = R.mp.get(Number(i.codigo_shares)), real = i.ult_precio ? i.ult_precio * (Number(i.shares_factor) || 1) : null;
+    const usos = (u.mp.get(m.id) || []).filter(x => x.item.tipo === 'PRODUCTO_TERMINADO');
+    const imp = real ? usos.map(x => simularR(x.item, new Map([[m.id, real]])).pct) : [];
+    return { i, m, real, dif: real ? varPctR(m.costo, real) : null, productos: usos.length, impMax: imp.length ? Math.max(...imp.map(Math.abs)) * Math.sign(imp.find(v => Math.abs(v) === Math.max(...imp.map(Math.abs))) || 1) : null };
+  }).sort((a, b) => Math.abs(b.dif ?? 0) - Math.abs(a.dif ?? 0));
+  const desact = unidos.filter(x => x.dif !== null && Math.abs(x.dif) >= umbral);
+  const sinUnir = R.ins.filter(i => i.ult_precio && !i.codigo_shares).map(i => ({ i, sug: sugerenciasMp(i.nombre, 1)[0] })).sort((a, b) => (b.sug?.s || 0) - (a.sug?.s || 0));
+  const mpUsadas = [...R.mp.values()].filter(m => u.mp.has(m.id));
+  el.innerHTML = `<div class="encabezado"><div><h1>Shares vs compras</h1><p>¿Shares costea con el precio real? Para cada insumo unido a su materia prima de Shares, el costo que usa Shares contra lo que se pagó en la última compra.</p></div>
+    <div class="acciones">${unidos.some(x => x.real) ? `<button class="btn btn-acento" id="b-simreal">${ICO.calc}Costear todo con precios de compra</button>` : ''}</div></div>
+    <div class="kpis">
+      ${kpiR('Unidos con Shares', unidos.length, `de ${mpUsadas.length} materias primas de Shares`)}
+      ${kpiR('Shares desactualizado', desact.length, `diferencia de ${umbral} % o más`, { clase: desact.length ? 'alerta' : '' })}
+      ${kpiR('Shares por debajo', desact.filter(x => x.dif > 0).length, 'Productos subcosteados')}
+      ${kpiR('Insumos sin unir', sinUnir.length, 'Con compras pero sin materia prima de Shares', { clase: sinUnir.length ? 'aviso' : '' })}
+    </div>
+    <div class="panel"><div class="panel-titulo"><h2>Insumos unidos</h2><span class="small muted">Ordenados por diferencia</span></div>
+      ${unidos.length ? `<div class="tabla-wrap"><table><thead><tr><th>Insumo</th><th>En Shares</th><th class="num">Costo Shares</th><th class="num">Última compra</th><th class="num">Diferencia</th><th class="num">Productos</th><th class="num">Mayor impacto</th></tr></thead><tbody>
+      ${unidos.map(x => `<tr class="click" data-href="#/mp/${x.m.id}"><td><b>${esc(x.i.nombre)}</b><small class="sub-celda">${esc(x.i.ult_proveedor || '')}</small></td><td class="small">${esc(x.m.denominacion)}</td>
+        <td class="num">${$$u(x.m.costo)}</td><td class="num">${x.real ? `${$$u(x.real)}<small class="sub-celda">${fmtF(x.i.ult_fecha)}</small>` : '<span class="muted">sin compras</span>'}</td>
+        <td class="num" data-orden="${x.dif ?? ''}">${x.dif === null ? '—' : chipVar(x.dif)}</td><td class="num">${x.productos || '—'}</td>
+        <td class="num" data-orden="${x.impMax ?? ''}" title="Cuánto cambia el costo del producto más afectado si Shares usara el precio de compra">${x.impMax === null ? '—' : chipVar(x.impMax)}</td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="vacio"><span class="grande">Todavía no hay insumos unidos</span>Unilos desde la lista de abajo, desde la ficha de cada insumo o desde “Materias primas de Shares”.</div>'}</div>
+    ${sinUnir.length ? `<div class="panel"><div class="panel-titulo"><h2>Insumos con compras sin unir</h2><span class="small muted">Con una sugerencia por nombre: revisala antes de confirmar</span></div>
+      <div class="tabla-wrap"><table><thead><tr><th>Insumo</th><th class="num">Última compra</th><th>Sugerencia en Shares</th><th class="num">Costo Shares</th><th></th></tr></thead><tbody>
+      ${sinUnir.map(x => `<tr><td><a href="#/insumo/${x.i.id}"><b>${esc(x.i.nombre)}</b></a><small class="sub-celda">${esc(x.i.rubro || '')}</small></td><td class="num">${fmtP(x.i.ult_precio, x.i.unidad)}</td>
+        <td class="small">${x.sug ? esc(x.sug.m.denominacion) : '<span class="muted">sin sugerencia</span>'}</td><td class="num">${x.sug ? $$u(x.sug.m.costo) : '—'}</td>
+        <td class="acciones">${puede('editor') ? `${x.sug ? `<button class="btn btn-chico btn-negro" data-ok="${x.i.id}" data-mp="${x.sug.m.id}">Confirmar</button>` : ''}<button class="btn btn-chico" data-elegir="${x.i.id}">Elegir</button>` : ''}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
+  irA(el);
+  $$('[data-ok]', el).forEach(b => b.onclick = () => conBoton(b, async () => { await guardarUnion(Number(b.dataset.ok), b.dataset.mp, 1); toast('Unido'); vistaComparar(el); }));
+  $$('[data-elegir]', el).forEach(b => b.onclick = () => modalUnirDesdeInsumo(R.ins.find(i => String(i.id) === b.dataset.elegir)));
+  const bs = $('#b-simreal'); if (bs) bs.onclick = () => { sessionStorage.setItem('sim_cambios', JSON.stringify(cambiosPreciosReales())); sessionStorage.setItem('sim_general', ''); location.hash = '#/simulador'; };
+}
+// Todas las materias primas unidas, al precio de su última compra
+const cambiosPreciosReales = () => [...R.insPorMp.keys()].map(id => [id, precioRealMp(id)?.precio]).filter(([id, p]) => p && R.mp.has(id));
+
+// ---------------------------------------------------------------------------
+//  Cambios de costo en Shares
+// ---------------------------------------------------------------------------
+async function vistaRecCambios(el) {
+  await cargarRecetas();
+  if (!R.cat.items.length) return sinRecetas(el, 'Cambios de costo');
+  let dias = Number(sessionStorage.getItem('rec_periodo')) || 30, datos;
+  el.innerHTML = `<div class="encabezado"><div><h1>Cambios de costo en Shares</h1><p>Productos, bases y materias primas que cambiaron de costo en Shares en el período.</p></div>
+    <div class="acciones">${selPeriodo('f-p', dias)}<button class="btn" id="b-exp">${ICO.download}Descargar Excel</button></div></div><div id="cont"></div>`;
+  const pintar = async () => {
+    const ch = await cargarCambiosR(dias);
+    const its = recItems().map(i => { const a = ch.items.get(kItem(i.tipo, i.id)); return { i, a, p: varPctR(a?.costoTotal, i.costoTotal) }; }).filter(x => x.p != null && Math.abs(x.p) >= 0.05).sort((a, b) => b.p - a.p);
+    const mps = [...R.mp.values()].map(m => { const a = ch.mp.get(m.id); return { m, a, p: varPctR(a?.costo, m.costo) }; }).filter(x => x.p != null && Math.abs(x.p) >= 0.05).sort((a, b) => b.p - a.p);
+    datos = { its, mps };
+    const ptc = its.filter(x => x.i.tipo === 'PRODUCTO_TERMINADO'), prom = (l) => l.length ? l.reduce((s, x) => s + x.p, 0) / l.length : null;
+    $('#cont').innerHTML = `${avisoHistorialR(ch)}<div class="kpis">
+        ${kpiR('Productos con cambios', ptc.length, ptc.length ? `Promedio ${chipVar(prom(ptc))}` : 'Ninguno')}
+        ${kpiR('Bases con cambios', its.length - ptc.length, '')}
+        ${kpiR('Materias primas con cambios', mps.length, mps.length ? `Promedio ${chipVar(prom(mps))}` : 'Ninguna')}
+        ${kpiR('Período', `${dias} días`, `Desde el ${fmtF(ch.historial_desde && ch.historial_desde > ch.desde ? ch.historial_desde : ch.desde)}`)}</div>
+      <div class="panel"><div class="panel-titulo"><h2>Productos y bases</h2></div>${its.length ? `<div class="tabla-wrap"><table><thead><tr><th>Código</th><th>Producto / base</th><th class="num">Antes</th><th class="num">Ahora</th><th class="num">Diferencia</th><th class="num">Variación</th></tr></thead><tbody>
+        ${its.map(x => `<tr class="click" data-href="#/receta/${x.i.tipo}/${x.i.id}"><td class="mono">${x.i.id}</td><td>${esc(x.i.denominacion)}<small class="sub-celda">${TIPO_TXT[x.i.tipo]} · ${esc(x.i.rubro || '')}</small></td><td class="num">${$$m(x.a.costoTotal)}<small class="sub-celda">${fmtF(x.a.fecha)}</small></td><td class="num"><b>${$$m(x.i.costoTotal)}</b></td><td class="num">${$$m(x.i.costoTotal - x.a.costoTotal)}</td><td class="num" data-orden="${x.p}">${chipVar(x.p)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vacio">Sin cambios en el período.</div>'}</div>
+      <div class="panel"><div class="panel-titulo"><h2>Materias primas</h2></div>${mps.length ? `<div class="tabla-wrap"><table><thead><tr><th>Código</th><th>Materia prima</th><th class="num">Antes</th><th class="num">Ahora</th><th class="num">Variación</th></tr></thead><tbody>
+        ${mps.map(x => `<tr class="click" data-href="#/mp/${x.m.id}"><td class="mono">${x.m.id}</td><td>${esc(x.m.denominacion)}</td><td class="num">${$$u(x.a.costo)}<small class="sub-celda">${fmtF(x.a.fecha)}</small></td><td class="num"><b>${$$u(x.m.costo)}</b></td><td class="num" data-orden="${x.p}">${chipVar(x.p)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vacio">Sin cambios en el período.</div>'}</div>`;
+    irA($('#cont'));
+  };
+  $('#f-p').onchange = (e) => { dias = Number(e.target.value); sessionStorage.setItem('rec_periodo', dias); pintar(); };
+  $('#b-exp').onclick = () => descargarXlsx(`cambios-de-costo-shares-${dias}-dias.xlsx`, [
+    ['Productos y bases', [['Tipo', 'Código', 'Denominación', 'Rubro', 'Costo antes', 'Fecha antes', 'Costo ahora', 'Diferencia', 'Variación %'], ...datos.its.map(x => [TIPO_TXT[x.i.tipo], x.i.id, x.i.denominacion, x.i.rubro, x.a.costoTotal, fmtF(x.a.fecha), x.i.costoTotal, x.i.costoTotal - x.a.costoTotal, Math.round(x.p * 100) / 100])], [18, 9, 40, 16, 14, 12, 14, 14, 12]],
+    ['Materias primas', [['Código', 'Materia prima', 'Costo antes', 'Fecha antes', 'Costo ahora', 'Variación %'], ...datos.mps.map(x => [x.m.id, x.m.denominacion, x.a.costo, fmtF(x.a.fecha), x.m.costo, Math.round(x.p * 100) / 100])], [9, 44, 14, 12, 14, 12]]]);
+  await pintar();
+}
+
+// ---------------------------------------------------------------------------
+//  Simulador
+// ---------------------------------------------------------------------------
+async function vistaSimulador(el) {
+  await cargarRecetas();
+  if (!R.cat.items.length) return sinRecetas(el, 'Simulador');
+  const cambios = new Map(JSON.parse(sessionStorage.getItem('sim_cambios') || '[]'));
+  let general = Number(sessionStorage.getItem('sim_general')) || 0, verBases = false;
+  const filtro0 = sessionStorage.getItem('sim_filtro') || ''; sessionStorage.removeItem('sim_filtro');
+  const mpsUsadas = [...R.mp.values()].filter(m => usosR().mp.has(m.id));
+  el.innerHTML = `<div class="encabezado"><div><h1>Simulador</h1><p>¿Qué pasa con el costo de cada producto si cambian las materias primas? Cargá uno o varios cambios, una suba general, o costeá todo con los precios de la última compra.</p></div>
+    <div class="acciones"><button class="btn" id="b-limpiar">Limpiar</button><button class="btn" id="b-exp">${ICO.download}Descargar Excel</button></div></div>
+    <div class="dos">
+      <div class="panel panel-pad"><h2 style="margin-bottom:10px">Cambios a simular</h2>
+        ${R.insPorMp.size ? `<button class="btn btn-acento" id="b-reales" style="margin-bottom:12px">${ICO.balanza}Usar precios de la última compra (${R.insPorMp.size} materias primas unidas)</button>` : ''}
+        <div class="campo"><label for="s-gen">Suba general de las demás materias primas (%)</label><input id="s-gen" type="number" step="0.1" value="${general || ''}" placeholder="Ej. 3 (inflación del mes)"></div>
+        <div class="campo"><label for="s-ins">Agregar una materia prima puntual</label><input id="s-ins" list="dl-mp" placeholder="Escribí el nombre o el código" autocomplete="off"><datalist id="dl-mp">${mpsUsadas.map(m => `<option value="${esc(m.denominacion)} · ${m.id}">`).join('')}</datalist></div>
+        <div id="s-lista"></div></div>
+      <div class="panel panel-pad"><h2 style="margin-bottom:10px">Resultado</h2><div id="s-kpis"></div>
+        <label class="check"><input type="checkbox" id="s-bases"> Mostrar también las bases</label>
+        <div class="campo" style="margin-top:8px"><label for="s-filtro">Filtrar productos</label><input id="s-filtro" placeholder="Nombre o rubro" value="${esc(filtro0)}"></div></div>
+    </div>
+    <div class="panel"><div class="tabla-wrap"><table><thead><tr><th>Código</th><th>Producto</th><th>Rubro</th><th class="num">Costo actual</th><th class="num">Costo simulado</th><th class="num">Diferencia</th><th class="num">Variación</th></tr></thead><tbody id="tb"></tbody></table></div><div class="paginacion" id="pag"></div></div>`;
+  const guardar = () => { sessionStorage.setItem('sim_cambios', JSON.stringify([...cambios])); sessionStorage.setItem('sim_general', general || ''); };
+  let filas = [];
+  const pintarLista = () => {
+    $('#s-lista').innerHTML = cambios.size ? `<div class="tabla-wrap tabla-scroll" style="max-height:320px"><table class="sin-orden"><tbody>${[...cambios].map(([id, nuevo]) => { const m = R.mp.get(id); return `<tr><td>${esc(m?.denominacion || id)}<small class="sub-celda">Shares ${$$u(m?.costo)}</small></td>
+      <td style="width:95px"><input type="number" step="0.1" data-pct="${id}" value="${m?.costo ? Math.round((nuevo / m.costo - 1) * 10000) / 100 : ''}" aria-label="Variación %" title="Variación %"></td><td class="small muted">%</td>
+      <td style="width:120px"><input type="number" step="0.01" data-nuevo="${id}" value="${Math.round(nuevo * 10000) / 10000}" aria-label="Costo nuevo" title="Costo nuevo"></td><td><button class="ibtn" data-quitar="${id}" aria-label="Quitar">${ICO.trash}</button></td></tr>`; }).join('')}</tbody></table></div>`
+      : '<p class="small muted" style="margin:0">Sin materias primas puntuales. Las que agregues pisan la suba general.</p>';
+    $$('[data-pct]').forEach(x => x.onchange = () => { const id = Number(x.dataset.pct), m = R.mp.get(id); cambios.set(id, m.costo * (1 + (parseFloat(x.value) || 0) / 100)); guardar(); pintarLista(); calcular(); });
+    $$('[data-nuevo]').forEach(x => x.onchange = () => { cambios.set(Number(x.dataset.nuevo), parseFloat(x.value) || 0); guardar(); pintarLista(); calcular(); });
+    $$('[data-quitar]').forEach(b => b.onclick = () => { cambios.delete(Number(b.dataset.quitar)); guardar(); pintarLista(); calcular(); });
+  };
+  const calcular = () => {
+    const q = normQ($('#s-filtro').value);
+    filas = recItems(verBases ? null : 'PRODUCTO_TERMINADO').map(i => ({ i, s: simularR(i, cambios, general) }))
+      .filter(x => !q || normQ(x.i.denominacion + ' ' + x.i.rubro).includes(q)).sort((a, b) => b.s.pct - a.s.pct);
+    const pts = filas.filter(x => x.i.tipo === 'PRODUCTO_TERMINADO'), af = pts.filter(x => Math.abs(x.s.pct) >= 0.005);
+    const prom = af.length ? af.reduce((s, x) => s + x.s.pct, 0) / af.length : 0;
+    $('#s-kpis').innerHTML = `<div class="kpis" style="grid-template-columns:repeat(2,minmax(0,1fr))">${kpiR('Productos afectados', af.length, `de ${pts.length}`)}${kpiR('Variación promedio', af.length ? chipVar(prom) : '—', af.length ? `máxima ${chipVar(Math.max(...af.map(x => x.s.pct)))}` : 'Cargá un cambio')}</div>`;
+    $('#tb').innerHTML = filas.slice(0, 600).map(x => `<tr class="click" data-href="#/receta/${x.i.tipo}/${x.i.id}"><td class="mono">${x.i.id}</td><td>${esc(x.i.denominacion)}${x.i.tipo === 'BASE' ? ' <span class="badge b-warn">base</span>' : ''}</td><td class="small">${esc(x.i.rubro || '')}</td>
+      <td class="num">${$$m(x.s.actual)}</td><td class="num"><b>${$$m(x.s.nuevo)}</b></td><td class="num" data-orden="${x.s.delta}">${Math.abs(x.s.delta) >= 0.005 ? $$m(x.s.delta) : '<span class="muted">—</span>'}</td><td class="num" data-orden="${x.s.pct}">${Math.abs(x.s.pct) >= 0.005 ? chipVar(x.s.pct) : '<span class="muted">—</span>'}</td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Nada con ese filtro.</td></tr>';
+    $('#pag').innerHTML = `<span>${filas.length} ${verBases ? 'productos y bases' : 'productos'}</span><span class="small muted">El costo indirecto no cambia: es el del rubro.</span>`;
+    irA($('#tb'));
+  };
+  const ins = $('#s-ins');
+  ins.oninput = () => {
+    const mm = ins.value.match(/·\s*(\d+)$/); if (!mm) return;
+    const id = Number(mm[1]), m = R.mp.get(id);
+    if (m && !cambios.has(id)) { cambios.set(id, m.costo * (1 + (general || 10) / 100)); guardar(); }
+    ins.value = ''; pintarLista(); calcular(); $(`[data-pct="${id}"]`)?.focus();
+  };
+  const br = $('#b-reales'); if (br) br.onclick = () => { for (const [id, p] of cambiosPreciosReales()) cambios.set(id, p); guardar(); pintarLista(); calcular(); toast(`${cambiosPreciosReales().length} materias primas a precio de última compra`); };
+  $('#s-gen').oninput = (e) => { general = parseFloat(e.target.value) || 0; guardar(); calcular(); };
+  $('#s-bases').onchange = (e) => { verBases = e.target.checked; calcular(); };
+  $('#s-filtro').oninput = calcular;
+  $('#b-limpiar').onclick = () => { cambios.clear(); general = 0; $('#s-gen').value = ''; $('#s-filtro').value = ''; guardar(); pintarLista(); calcular(); };
+  $('#b-exp').onclick = () => descargarXlsx('simulacion-costos.xlsx', [
+    ['Resultado', [['Tipo', 'Código', 'Producto', 'Rubro', 'Costo actual (Shares)', 'Costo simulado', 'Diferencia', 'Variación %'], ...filas.map(x => [TIPO_TXT[x.i.tipo], x.i.id, x.i.denominacion, x.i.rubro, x.s.actual, x.s.nuevo, x.s.delta, Math.round(x.s.pct * 100) / 100])], [18, 9, 40, 16, 16, 14, 14, 12]],
+    ['Supuestos', [['Suba general de las demás materias primas %', general || 0], [], ['Código', 'Materia prima', 'Costo Shares', 'Costo simulado', 'Variación %'],
+      ...[...cambios].map(([id, n]) => { const m = R.mp.get(id); return [id, m?.denominacion, m?.costo, n, m?.costo ? Math.round((n / m.costo - 1) * 10000) / 100 : '']; })], [40, 40, 14, 14, 12]]]);
+  pintarLista(); calcular();
+}
