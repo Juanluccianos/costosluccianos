@@ -1,6 +1,8 @@
 /* =============================================================================
  *  Costos de insumos — Lucciano's (frontend)
  *  Vanilla JS, sin build. Habla con el Worker (window.COSTOS_API).
+ *  1.5.0: #/tablero (tablero ejecutivo, en tablero.js) es la pantalla de inicio. Corrige rendimiento de recetas
+ *         en el simulador, contenido de envases multipack ("6 x 1,15 kg"), controles al vincular y formato de moneda.
  *  Rutas: #/inicio, #/alertas, #/insumos, #/insumo/ID, #/vincular, #/facturas,
  *         #/admin, #/guia, #/cuenta
  *  Recetas de Shares (1.4.0): #/productos, #/bases, #/receta/TIPO/ID, #/mp, #/mp/ID, #/comparar,
@@ -32,6 +34,9 @@ const puede = (rol) => S.user && NIVEL[S.user.rol] >= NIVEL[rol];
 const fmtNum = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtCant = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 3 });
 const $$m = (n) => { if (n === null || n === undefined || n === '') return '—'; const x = Number(n); return Number.isFinite(x) ? '$ ' + fmtNum.format(x) : '—'; };
+// Importe con su moneda: pesos ($), dólares (US$), euros (€). Antes un importe en dólares se mostraba "DOL $ 32,88" y en ARS salía "ARS $".
+const $$mon = (n, mon) => { const m = String(mon || 'PES').toUpperCase(); if (m === 'PES' || m === 'ARS') return $$m(n); const x = Number(n); if (!Number.isFinite(x)) return '—';
+  return ({ DOL: 'US$ ', USD: 'US$ ', EUR: '€ ', '060': '€ ' }[m] || m + ' ') + fmtNum.format(x); };
 const fmtF = (v) => {
   if (!v) return '—';
   const s = String(v).trim(); let m;
@@ -123,6 +128,17 @@ function contenidoEnDescripcion(desc, base) {
   const t = normQ(desc).toUpperCase();
   const n = (x) => Number(String(x).replace(',', '.'));
   let m;
+  // Multipack: "CAJA X 6GRIP X 1,15KG" → 6 × 1,15 = 6,9 kg · "PACK 12X1LT" → 12 l · "X2LTS X6" → 12 l.
+  // Va primero: si no, se toma solo el contenido de una unidad interna y el precio por kg sale multiplicado (bug 1.4.1).
+  const UK = '(KG|KGS|K|KILOS?|GR|GRS|G|LT|LTS|L|LITROS?|ML|CC)';
+  const aBase = (v, u) => { u = u.replace(/S$/, ''); const kg = /^(KG|K|KILO)$/.test(u), g = /^(GR|G)$/.test(u), l = /^(LT|L|LITRO)$/.test(u), ml = /^(ML|CC)$/.test(u);
+    if (base === 'kg') return kg ? v : g ? v / 1000 : null;
+    if (base === 'l') return l ? v : ml ? v / 1000 : null;
+    return null; };
+  if (base !== 'un') {
+    if ((m = t.match(new RegExp(`(\\d+)\\s*(?:[A-Z]+\\s*)?X\\s*(\\d+(?:[.,]\\d+)?)\\s*${UK}\\b`)))) { const v = aBase(n(m[1]) * n(m[2]), m[3]); if (v) return v; }
+    if ((m = t.match(new RegExp(`X?\\s*(\\d+(?:[.,]\\d+)?)\\s*${UK}\\s*X\\s*(\\d+)\\b(?!\\s*${UK})`)))) { const v = aBase(n(m[1]) * n(m[3]), m[2]); if (v) return v; }
+  }
   if (base === 'un') {
     if ((m = t.match(/X\s*(\d+)\s*(?:U|UN|UNI|UNID|UNIDADES|UDS?|PZAS?|PIEZAS?)\b/))) return n(m[1]);
     if ((m = t.match(/(?:BULTO|CAJA|CAJ|CJA|PACK|PAQ|BOLSA)\s*X?\s*(\d+)\b(?!\s*(?:KG|GR|G|LT|L|ML|CC)\b)/))) return n(m[1]);
@@ -150,6 +166,19 @@ function factorSugerido(g, base) {
   if (g.contenido && (!g.unidad_base || g.unidad_base === base)) return g.contenido;
   return d;
 }
+// Control de la equivalencia antes de vincular: si lo que la IA leyó como contenido del envase no coincide con el
+// factor propuesto, o si el precio por kg/l/u queda muy lejos de la referencia (compras anteriores o Shares), no se
+// confirma con un clic: hay que revisarlo. Devuelve el motivo, o null si está todo bien.
+function chequeoFactor(g, base, factor, ref = null) {
+  if (!factor) return null;
+  const directo = factorDirecto(g.unidad, base);
+  const generica = unidadFact(g.unidad) === 'unidad';
+  if (g.contenido && (!g.unidad_base || g.unidad_base === base) && !(directo && !generica) && Math.abs(Number(g.contenido) / factor - 1) > 0.02)
+    return `La IA leyó que cada ${unidadMostrar(g.unidad, factor, base, g.descripcion)} trae ${fmtCant.format(g.contenido)} ${UNI_C[base]}, no ${fmtCant.format(factor)}. Revisá cuál es el correcto en la factura.`;
+  const pc = precioComparable(g.ult_unit_ars, factor);
+  if (pc && ref && (pc / ref > 2 || pc / ref < 0.5)) return `Daría ${$$m(pc)} por ${UNI[base]} y la referencia es ${$$m(ref)}: más del doble o menos de la mitad.`;
+  return null;
+}
 // Precio comparable: $ por kg / litro / unidad
 const precioComparable = (unitArs, factor) => unitArs && factor ? unitArs / factor : null;
 
@@ -175,7 +204,8 @@ async function api(path, { method = 'GET', body, raw = false } = {}) {
         headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(S.token ? { Authorization: 'Bearer ' + S.token } : {}) },
         body: body ? JSON.stringify(body) : undefined,
       });
-      if (method === 'GET' && [502, 503, 504].includes(res.status) && intento < 2) throw new TypeError('HTTP ' + res.status);
+      // 500 también: D1 a veces devuelve "D1_ERROR: internal error" transitorio (se vio en las pruebas). Un GET se puede repetir sin riesgo.
+      if (method === 'GET' && [500, 502, 503, 504].includes(res.status) && intento < 2) throw new TypeError('HTTP ' + res.status);
       break;
     } catch (e) {
       if (!(e instanceof TypeError)) throw e;
@@ -426,7 +456,7 @@ async function vistaLogin() {
   let setup = false;
   try { setup = (await api('/api/estado')).setup_requerido; } catch (e) {
     $('#app').innerHTML = `<div class="login"><div class="login-arte"><img src="logo-negro.png" alt="Lucciano's"><div></div></div>
-      <div class="login-form"><div class="caja"><h1>Sin conexión</h1><p>No pude conectar con el servidor (${esc(API)}).<br>${esc(e.message)}</p><button class="btn btn-acento btn-grande" onclick="location.reload()">${ICO.refresh}Reintentar</button></div></div></div>`;
+      <div class="login-form"><div class="caja"><h1>Sin conexión</h1><p>No pude conectar con el servidor. Probá de nuevo en unos segundos.</p><p class="small muted">Detalle técnico: ${esc(e.message)}</p><button class="btn btn-acento btn-grande" onclick="location.reload()">${ICO.refresh}Reintentar</button></div></div></div>`;
     return;
   }
   $('#app').innerHTML = `<div class="login">
@@ -450,7 +480,7 @@ async function vistaLogin() {
       const r = await api(setup ? '/api/setup' : '/api/login', { method: 'POST', body: fd });
       if (r.requiere_totp) { $('#c-totp').classList.remove('hidden'); $('#c-totp input').focus(); toast('Ingresá el código de tu app autenticadora.'); return; }
       guardarToken(r.token); S.user = r.usuario; colorBarra(null);
-      if (!location.hash) location.hash = '#/inicio';
+      if (!location.hash) location.hash = '#/tablero';
       iniciar();
     });
   };
@@ -460,7 +490,8 @@ async function vistaLogin() {
 //  Shell y router
 // ---------------------------------------------------------------------------
 const RUTAS = [
-  { re: /^#\/inicio$/, v: vistaInicio, nav: 'inicio', miga: '<b>Inicio</b>' },
+  { re: /^#\/tablero$/, v: (el) => vistaTablero(el), nav: 'tablero', miga: '<b>Tablero ejecutivo</b>' },
+  { re: /^#\/inicio$/, v: vistaInicio, nav: 'inicio', miga: 'Seguimiento / <b>Novedades de compras</b>' },
   { re: /^#\/alertas$/, v: vistaAlertas, nav: 'alertas', miga: 'Seguimiento / <b>Alertas</b>' },
   { re: /^#\/insumos$/, v: vistaInsumos, nav: 'insumos', miga: 'Seguimiento / <b>Insumos</b>' },
   { re: /^#\/insumo\/(\d+)$/, v: vistaInsumo, nav: 'insumos', miga: 'Seguimiento / <a href="#/insumos">Insumos</a> / <b>Insumo</b>' },
@@ -486,10 +517,11 @@ function shell(ruta) {
   const rol = { admin: 'Administrador', editor: 'Editor', consulta: 'Consulta' }[S.user.rol] || S.user.rol;
   return `<div class="app">
     <aside class="side">
-      <a class="brand" href="#/inicio"><img src="logo-negro.png" alt="Lucciano's"><span>Costos de insumos</span></a>
+      <a class="brand" href="#/tablero"><img src="logo-negro.png" alt="Lucciano's"><span>Costos de insumos</span></a>
       <nav class="nav" aria-label="Secciones">
-        ${it('inicio', 'home', 'Inicio')}
+        ${it('tablero', 'chart', 'Tablero ejecutivo')}
         <div class="grp-t">Seguimiento</div>
+        ${it('inicio', 'home', 'Novedades de compras')}
         ${it('alertas', 'bell', 'Alertas', '<span class="cnt hot" data-cnt="alertas"></span>')}
         ${it('insumos', 'box', 'Insumos')}
         <div class="grp-t">Recetas (Shares)</div>
@@ -517,7 +549,7 @@ function shell(ruta) {
       <main id="vista" class="entra"><div class="vacio"><span class="cargando"></span></div></main>
     </div></div>
     <nav class="mnav" aria-label="Secciones">
-      <a href="#/inicio" class="${a === 'inicio' ? 'activo' : ''}">${ICO.home}Inicio</a>
+      <a href="#/tablero" class="${a === 'tablero' ? 'activo' : ''}">${ICO.chart}Tablero</a>
       <a href="#/alertas" class="${a === 'alertas' ? 'activo' : ''}">${ICO.bell}Alertas<span class="cnt hot" data-cnt="alertas"></span></a>
       <a href="#/insumos" class="${a === 'insumos' ? 'activo' : ''}">${ICO.box}Insumos</a>
       <a href="#/vincular" class="${a === 'vincular' ? 'activo' : ''}">${ICO.link}Vincular<span class="cnt" data-cnt="vincular"></span></a>
@@ -539,8 +571,9 @@ function pintarContadores(c) { $$('[data-cnt]').forEach(x => { const n = c[x.dat
 
 async function router() {
   if (!S.token) return vistaLogin();
+  if (!S.user) return;   // todavía arrancando (iniciar() llama al router cuando sabe quién es el usuario)
   if (S.pdfUrl) { URL.revokeObjectURL(S.pdfUrl); S.pdfUrl = null; S.pdfBytes = null; }
-  const h = location.hash || '#/inicio';
+  const h = location.hash || '#/tablero';
   const r = RUTAS.find(x => x.re.test(h)) || RUTAS[0];
   const m = h.match(r.re) || [];
   $('#app').innerHTML = shell(r);
@@ -820,8 +853,8 @@ async function vistaInsumo(el, id) {
         <td class="desc-fac">${esc(r.descripcion)}</td>
         <td class="num">${r.cantidad != null ? fmtCant.format(r.cantidad) : '—'} <small class="muted">${esc(unidadFact(r.unidad))}</small></td>
         <td class="small">${esc(textoEquivale(r.unidad, r.factor, u, r.descripcion))}</td>
-        <td class="num">${r.moneda && r.moneda !== 'PES' ? esc(r.moneda) + ' ' : ''}${$$m(r.precio_unitario)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}${r.desc_pct ? `<small class="sub-celda txt-pos">desc. general ${dec(r.desc_pct)} %</small>` : ''}</td>
-        <td class="num"><b>${r.ignorado ? '<span class="muted">No cuenta</span>' : r.alerta_lectura ? '<span class="txt-neg">⚠ No cuenta</span>' : fmtP(r.precio_base, u)}</b>${r.alerta_lectura ? `<small class="sub-celda txt-neg">${esc(r.alerta_lectura)}</small>` : ''}</td>
+        <td class="num">${$$mon(r.precio_unitario, r.moneda)}${r.bonif_pct ? `<small class="sub-celda">bonif. ${dec(r.bonif_pct)} %</small>` : ''}${r.desc_pct ? `<small class="sub-celda txt-pos">desc. general ${dec(r.desc_pct)} %</small>` : ''}</td>
+        <td class="num"><b>${r.ignorado ? '<span class="muted">No cuenta</span>' : r.alerta_lectura ? `<span class="txt-neg con-ico-chico">${ICO.alert}No cuenta</span>` : r.precio_base == null ? `<span class="txt-neg con-ico-chico">${ICO.alert}No cuenta</span>` : fmtP(r.precio_base, u)}</b>${r.alerta_lectura ? `<small class="sub-celda txt-neg">${esc(r.alerta_lectura)}</small>` : r.precio_base == null && !r.ignorado ? '<small class="sub-celda txt-neg">La IA no leyó la cantidad: corregila en la factura</small>' : ''}</td>
         <td>${puede('editor') ? `<button class="btn btn-chico" data-ren="${r.id}" title="Corregir">${ICO.pencil}</button>` : ''}</td></tr>`).join('')
         : '<tr><td colspan="8" class="vacio">Sin compras.</td></tr>'}</tbody></table></div></div>
     ${d.vinculos.length ? `<div class="panel"><div class="panel-titulo"><h2>Descripciones vinculadas</h2></div><div class="tabla-wrap"><table><thead><tr><th>Proveedor</th><th>Descripción</th><th>Equivale</th><th class="num">Compras</th></tr></thead><tbody>
@@ -910,13 +943,13 @@ async function vistaVincular(el) {
       const pc = s ? precioComparable(g.ult_unit_ars, s.factor) : null;
       // Control: si el insumo ya tiene precio y este queda muy lejos (más del doble o menos de la mitad), algo está mal leído
       const ref = s?.ins ? insPorId.get(s.ins.id)?.ult_precio : null;
-      const raro = pc && ref && (pc / ref > 2 || pc / ref < 0.5);
+      const motivo = s ? chequeoFactor(g, s.u, s.factor, ref) : null, raro = !!motivo;
       return `<tr class="click fila-vinc${sel.has(k) ? ' sel' : ''}" data-fac="${g.factura_id}" title="Tocá para ver la factura">
         <td><div class="vp-prod">${ed ? `<label class="ck" title="Marcar"><input type="checkbox" data-sel="${k}" ${sel.has(k) ? 'checked' : ''} aria-label="Marcar"><span class="ck-box"></span></label>` : ''}<div><div class="vp-desc">${esc(g.descripcion)}</div>
           <div class="vp-meta">${g.codigo ? `Cód. ${esc(g.codigo)} · ` : ''}${g.n} compra${g.n > 1 ? 's' : ''} · última ${fmtF(g.ultima_fecha)} · <a href="#/factura/${g.factura_id}" data-irfac="${g.factura_id}">ver factura</a></div></div></div></td>
-        <td class="num"><b>${g.moneda && g.moneda !== 'PES' ? esc(g.moneda) + ' ' : ''}${$$m(g.precio_unitario)}</b><div class="vp-meta">por ${esc(s ? unidadMostrar(g.unidad, s.factor, s.u, g.descripcion) : unidadFact(g.unidad))}</div></td>
+        <td class="num"><b>${$$mon(g.precio_unitario, g.moneda)}</b><div class="vp-meta">por ${esc(s ? unidadMostrar(g.unidad, s.factor, s.u, g.descripcion) : unidadFact(g.unidad))}</div></td>
         <td>${s ? `<div class="vp-ins">${esc(s.nombre)}${s.nuevo ? '<span class="vp-nuevo">nuevo</span>' : ''}</div><div class="vp-meta">${esc(textoEquivale(g.unidad, s.factor, s.u, g.descripcion))}</div>` : '<span class="vp-meta">Sin sugerencia</span>'}</td>
-        <td class="num">${pc ? `<b>${fmtP(pc, s.u)}</b>${raro ? `<div class="vp-meta txt-neg">⚠ el último fue ${fmtP(ref, s.u)}: revisá la equivalencia</div>` : ''}` : '<span class="vp-meta">—</span>'}</td>
+        <td class="num">${pc ? `<b>${fmtP(pc, s.u)}</b>${raro ? `<div class="vp-meta txt-neg con-ico-chico">${ICO.alert}${esc(motivo)}</div>` : ''}` : '<span class="vp-meta">—</span>'}</td>
         <td class="acc-vinc"><div class="acc-in">${puede('editor') ? `${s && s.factor && !raro ? `<button class="btn btn-acento btn-chico" data-ok="${k}">${ICO.check}Confirmar</button>` : ''}<button class="btn btn-chico" data-v="${k}">${s && s.factor ? 'Cambiar' : 'Vincular'}</button><button class="ibtn ib-x" data-ign="${k}" title="No es insumo (flete, servicio, descuento…)" aria-label="No es insumo">${ICO.x}</button>` : ''}</div></td></tr>`;
     };
     const nCol = 5;
@@ -989,7 +1022,10 @@ function modalVincular(g, insumos, alTerminar) {
         $('#v-campo-fac label', m).textContent = directo2 ? `Se compra por ${UNI[unidad()]}: no hace falta convertir` : `¿Cuánto trae cada ${unidadMostrar(g.unidad, 2, null, g.descripcion)}?`;
         $('#v-campo-fac .fila-eq', m).classList.toggle('hidden', directo2);
         const f = Number($('#v-fac', m).value);
-        $('#v-prev', m).innerHTML = f > 0 && unit ? `Precio comparable: <b>${$$m(unit / f)}</b> por ${esc(UNI[unidad()])} (neto, sin IVA). Así se compara con cualquier otro proveedor, venga en la presentación que venga.` : 'Ej: bolsa × 25 kg → 25 · bidón de 5 litros → 5 · si ya se factura por kg → 1.';
+        const insSel = modo === 'existente' ? insumos.find(i => String(i.id) === $('#v-ins', m).value) : null;
+        const aviso = chequeoFactor(g, unidad(), f, insSel?.ult_precio || null);
+        $('#v-prev', m).innerHTML = (f > 0 && unit ? `Precio comparable: <b>${$$m(unit / f)}</b> por ${esc(UNI[unidad()])} (neto, sin IVA). Así se compara con cualquier otro proveedor, venga en la presentación que venga.` : 'Ej: bolsa × 25 kg → 25 · bidón de 5 litros → 5 · si ya se factura por kg → 1.')
+          + (aviso ? `<div class="txt-neg con-ico-chico" style="margin-top:6px">${ICO.alert}${esc(aviso)}</div>` : '');
       };
       $$('#v-modo button', m).forEach(b => b.onclick = () => { modo = b.dataset.m; $$('#v-modo button', m).forEach(x => x.classList.toggle('on', x === b)); prev(); });
       $$('#v-u button', m).forEach(b => b.onclick = () => { uNuevo = b.dataset.u; $$('#v-u button', m).forEach(x => x.classList.toggle('on', x === b)); prev(); });
@@ -1027,7 +1063,7 @@ async function vistaFacturas(el) {
     $('#tb').innerHTML = r.facturas.length ? r.facturas.map(f => `<tr class="click" data-id="${f.id}">
         <td><div class="prov">${cuad(f.razon_social)}<div><b>${esc(f.razon_social || 'Sin identificar')}</b><small class="mono">${fmtCuit(f.cuit)} · #${f.id}</small></div></div></td>
         <td class="mono">${esc(TIPOS[f.tipo] || '')} ${nroCbte(f)}</td><td class="mono">${fmtF(f.fecha)}</td>
-        <td class="num">${f.moneda && f.moneda !== 'PES' ? esc(f.moneda) + ' ' : ''}${$$m(f.neto)}${f.descuento_pct ? `<small class="sub-celda txt-pos">bonif. general ${dec(f.descuento_pct)} %</small>` : ''}</td>
+        <td class="num">${$$mon(f.neto, f.moneda)}${f.descuento_pct ? `<small class="sub-celda txt-pos">bonif. general ${dec(f.descuento_pct)} %</small>` : ''}</td>
         <td class="num">${f.n_renglones || '—'}${f.n_renglones ? `<small class="sub-celda">${f.n_vinculados === f.n_renglones ? 'todos vinculados' : `${f.n_renglones - f.n_vinculados} sin vincular`}</small>` : ''}</td>
         <td>${badgeLectura(f.lectura)}${f.lectura_motivo && f.lectura !== 'ok' ? `<small class="sub-celda motivo-rech">${esc(f.lectura_motivo)}</small>` : ''}</td></tr>`).join('')
       : `<tr><td colspan="6" class="vacio">${lectura || $('#q').value ? 'Nada coincide con el filtro.' : '<span class="grande">Todavía no hay facturas</span>Se traen solas de la app de facturas cada 10 minutos.'}</td></tr>`;
@@ -1658,20 +1694,31 @@ function explotarR(item, pila = new Set()) {
     const e = mp.get(id) || { id, denominacion: den, categoria, cantidad: 0, costo: 0, origenes: new Set() };
     e.cantidad += cant; e.costo += costo; e.origenes.add(origen); mp.set(id, e);
   };
+  // Rendimiento: Shares a veces carga la receta para un lote (ej. 1,2 kg de avella → 6 frascos) y en la cabecera
+  // informa el costo POR UNIDAD (costoReceta = Σ renglones / 6), pero la API no manda el rendimiento. Se deduce:
+  // escala = costoReceta / Σ(cantidad × costo), aplicada a cantidades y costos de la receta (no al packaging, que
+  // Shares ya da por unidad). Así la apertura a materia prima siempre suma exactamente el costo de Shares. Sin esto, el
+  // simulador y la "apertura a materia prima" salían multiplicados (Avella Pistacchio frasco: +10 % general daba +45 %).
+  // Si la diferencia es de más de 0,5 % se trata como receta cargada por lote (se avisa); si es menor, es redondeo de Shares.
+  const sumaLineas = (item.receta || []).reduce((s, l) => s + (Number(l.cantidad) || 0) * (Number(l.costo) || 0), 0);
+  const escala = item.costoReceta > 0 && sumaLineas > 0 ? item.costoReceta / sumaLineas : 1;
+  const lote = Math.abs(escala - 1) > 0.005;
   for (const l of item.receta || []) {
+    const q = l.cantidad * escala;
     if (esLineaBaseR(l)) {
       const base = R.porKey.get(kItem('BASE', l.id));
       const sub = explotarR(base, pila);
-      for (const e of sub.mp.values()) sumar(e.id, e.denominacion, e.categoria, e.cantidad * l.cantidad, e.costo * l.cantidad, 'base');
-      const ind = (base.costoIndirecto + sub.indirectoBases) * l.cantidad;
+      for (const e of sub.mp.values()) sumar(e.id, e.denominacion, e.categoria, e.cantidad * q, e.costo * q, 'base');
+      const ind = (base.costoIndirecto + sub.indirectoBases) * q;
       indirectoBases += ind;
-      const explotado = [...sub.mp.values()].reduce((s, e) => s + e.costo, 0) * l.cantidad + ind;
-      ajuste += l.cantidad * l.costo - explotado + sub.ajuste * l.cantidad;
-    } else sumar(l.id, l.denominacion, l.categoria, l.cantidad, l.cantidad * l.costo, 'directo');
+      const explotado = [...sub.mp.values()].reduce((s, e) => s + e.costo, 0) * q + ind;
+      // q·costo de la línea − lo explotado ya incluye el ajuste propio de la base (antes se sumaba dos veces)
+      ajuste += q * l.costo - explotado;
+    } else sumar(l.id, l.denominacion, l.categoria, q, q * l.costo, 'directo');
   }
   for (const l of item.packaging || []) sumar(l.id, l.denominacion, 'PACKAGING', l.cantidad, l.cantidad * l.costo, 'directo');
   pila.delete(k);
-  const r = { mp, indirectoBases, ajuste };
+  const r = { mp, indirectoBases, ajuste, escala, lote, rendimiento: lote ? 1 / escala : 1 };
   R.expl.set(k, r);
   return r;
 }
@@ -1684,7 +1731,8 @@ function usosR() {
       l.push({ item: it, cantidad: e.cantidad, costo: e.costo, directo: e.origenes.has('directo'), viaBase: e.origenes.has('base') });
       mp.set(e.id, l);
     }
-    for (const l of it.receta || []) if (esLineaBaseR(l)) { const u = bases.get(l.id) || []; u.push({ item: it, cantidad: l.cantidad, costo: l.cantidad * l.costo }); bases.set(l.id, u); }
+    const esc_ = explotarR(it).escala || 1;
+    for (const l of it.receta || []) if (esLineaBaseR(l)) { const u = bases.get(l.id) || []; u.push({ item: it, cantidad: l.cantidad * esc_, costo: l.cantidad * l.costo * esc_ }); bases.set(l.id, u); }
   }
   R.usos = { mp, bases };
   return R.usos;
@@ -1757,9 +1805,12 @@ function graficoLineaR(puntos, { alto = 180 } = {}) {
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Evolución del costo" style="display:block;max-width:100%">${ejeY}<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2.2"/>${marcas}
     <text x="${pl}" y="${H - 6}" font-size="11" fill="var(--muted)">${fmtF(pts[0].fecha)}</text><text x="${W - pr}" y="${H - 6}" font-size="11" fill="var(--muted)" text-anchor="end">hoy</text></svg>`;
 }
-function barraComposicionR(it) {
-  const tot = it.costoTotal || 0;
-  const partes = [['Materia prima y bases', it.costoReceta, 'var(--accent)'], ['Costo indirecto', it.costoIndirecto, 'var(--warn)'], ['Packaging', it.costoPackaging, 'var(--ink)']].filter(p => p[1] > 0);
+// Composición del costo. El "costo de receta" de Shares incluye el costo indirecto de las bases que usa: se separa,
+// para que el % de materia prima no salga inflado.
+const sumaLineasR = (it) => (it.receta || []).reduce((s, l) => s + l.cantidad * l.costo, 0);
+function barraComposicionR(it, ex = explotarR(it)) {
+  const tot = it.costoTotal || 0, indB = ex.indirectoBases || 0;
+  const partes = [['Materia prima', it.costoReceta - indB, 'var(--accent)'], ['Indirecto de las bases', indB, 'var(--warn-2, #d9a441)'], ['Costo indirecto', it.costoIndirecto, 'var(--warn)'], ['Packaging', it.costoPackaging, 'var(--ink)']].filter(p => p[1] > 0.005);
   if (!tot) return '';
   return `<div style="display:flex;height:12px;border-radius:999px;overflow:hidden;background:var(--surface-2)">${partes.map(p => `<span title="${p[0]}" style="width:${p[1] / tot * 100}%;background:${p[2]}"></span>`).join('')}</div>
     <div class="chips" style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">${partes.map(p => `<span class="small"><i style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${p[2]};margin-right:5px"></i>${p[0]} ${pctTxt(p[1], tot)}</span>`).join('')}</div>`;
@@ -1840,11 +1891,14 @@ async function vistaRecItem(el, tipo, id) {
   const reales = new Map();
   for (const e of ex.mp.values()) { const pr = precioRealMp(e.id); if (pr) reales.set(e.id, pr.precio); }
   const sReal = reales.size ? simularR(it, reales) : null;
+  // Cobertura: qué parte del costo de materia prima tiene precio de compra real (el resto sigue con el costo de Shares)
+  const costoMpTot = [...ex.mp.values()].reduce((s, e) => s + e.costo, 0);
+  const cobertura = costoMpTot ? [...ex.mp.values()].filter(e => reales.has(e.id)).reduce((s, e) => s + e.costo, 0) / costoMpTot * 100 : 0;
   const filaLinea = (l, pack = false) => {
-    const base = !pack && esLineaBaseR(l), sub = l.cantidad * l.costo;
+    const base = !pack && esLineaBaseR(l), sub = l.cantidad * l.costo * (pack ? 1 : ex.escala);
     const pr = !base ? precioRealMp(l.id) : null;
     return `<tr class="click" data-href="${base ? `#/receta/BASE/${l.id}` : `#/mp/${l.id}`}"><td class="mono">${l.id}</td><td>${esc(l.denominacion)}${base ? ' <span class="badge b-warn">base</span>' : ''}</td>
-      <td class="num mono">${fmtCantR(l.cantidad)}</td><td class="num">${$$u(l.costo)}${pr ? `<small class="sub-celda" title="Última compra de ${esc(pr.insumo.nombre)}">compra ${$$u(pr.precio)} ${chipVarR(l.costo, pr.precio)}</small>` : ''}</td>
+      <td class="num mono">${fmtCantR(l.cantidad * (pack ? 1 : ex.escala))}${!pack && ex.lote ? `<small class="sub-celda muted">${fmtCantR(l.cantidad)} por lote</small>` : ''}</td><td class="num">${$$u(l.costo)}${pr ? `<small class="sub-celda" title="Última compra de ${esc(pr.insumo.nombre)}">compra ${$$u(pr.precio)} ${chipVarR(l.costo, pr.precio)}</small>` : ''}</td>
       <td class="num"><b>${$$m(sub)}</b></td><td class="num">${pctTxt(sub, tot)}</td></tr>`;
   };
   const cab = '<thead><tr><th>Código</th><th>Insumo</th><th class="num">Cantidad</th><th class="num">Costo unitario</th><th class="num">Subtotal</th><th class="num">% del costo</th></tr></thead>';
@@ -1852,13 +1906,15 @@ async function vistaRecItem(el, tipo, id) {
       <h1 style="margin-top:6px">${esc(it.denominacion)}</h1><p>${TIPO_TXT[tipo]} ${it.id} · rubro ${esc(it.rubro || '—')} · costos según Shares</p></div>
     <div class="acciones"><button class="btn" id="b-exp">${ICO.download}Descargar receta</button><a class="btn" href="#/simulador" id="b-sim">${ICO.calc}Simular</a></div></div>
     <div class="kpis">
-      ${kpiR('Costo total (Shares)', $$m(tot), 'Por unidad del producto')}
+      ${kpiR('Costo total (Shares)', $$m(tot), esPT ? 'Por unidad del producto' : 'Por kg o unidad de la base')}
       ${kpiR('Materia prima y bases', $$m(it.costoReceta), pctTxt(it.costoReceta, tot) + ' del total')}
       ${kpiR('Costo indirecto', $$m(it.costoIndirecto), pctTxt(it.costoIndirecto, tot) + ' · del rubro')}
-      ${sReal ? kpiR('Con precios de compra', $$m(sReal.nuevo), `${chipVar(sReal.pct)} · ${reales.size} de ${ex.mp.size} materias primas con compra`, { clase: Math.abs(sReal.pct) >= 5 ? 'alerta' : '' })
+      ${sReal ? kpiR(cobertura >= 80 ? 'Con precios de compra' : 'Con precios de compra (parcial)', $$m(sReal.nuevo), `${chipVar(sReal.pct)} · ${reales.size} de ${ex.mp.size} materias primas con compra, ${fmtCant.format(Math.round(cobertura))} % del costo de materia prima`, { clase: Math.abs(sReal.pct) >= 5 ? 'alerta' : cobertura < 80 ? 'aviso' : '' })
         : esPT ? kpiR('Packaging', $$m(it.costoPackaging), pctTxt(it.costoPackaging, tot) + ' del total') : kpiR('Se usa en', usadoEn.length, 'productos o bases')}
     </div>
-    <div class="panel panel-pad" style="margin-bottom:16px">${barraComposicionR(it)}</div>
+    ${ex.lote ? `<div class="panel panel-pad aviso-panel" style="margin-bottom:16px"><b class="con-ico-chico">${ICO.info}En Shares esta receta está cargada para un lote de ${fmtCant.format(Math.round(ex.rendimiento * 100) / 100)} unidades.</b>
+      <div class="small muted">La suma de los renglones da ${$$m(sumaLineasR(it))} y Shares informa ${$$m(it.costoReceta)} por unidad. Las cantidades y subtotales de abajo ya están divididos por el lote. ${ex.rendimiento % 1 > 0.01 && ex.rendimiento % 1 < 0.99 ? 'El lote no es un número entero: conviene revisar la receta en Shares.' : ''}</div></div>` : ''}
+    <div class="panel panel-pad" style="margin-bottom:16px">${barraComposicionR(it, ex)}</div>
     <div class="panel"><div class="panel-titulo"><h2>Receta</h2><span class="small muted">Tal como está en Shares · debajo del costo, la última compra si la materia prima está unida a un insumo</span></div>
       <div class="tabla-wrap"><table>${cab}<tbody>${(it.receta || []).map(l => filaLinea(l)).join('') || '<tr><td colspan="6" class="vacio">Sin renglones.</td></tr>'}</tbody></table></div></div>
     ${(it.packaging || []).length ? `<div class="panel"><div class="panel-titulo"><h2>Packaging</h2></div><div class="tabla-wrap"><table>${cab}<tbody>${it.packaging.map(l => filaLinea(l, true)).join('')}</tbody></table></div></div>` : ''}
@@ -1877,7 +1933,8 @@ async function vistaRecItem(el, tipo, id) {
   $('#b-exp').onclick = () => {
     const filas = [[`${TIPO_TXT[tipo]} ${it.id}`, it.denominacion], ['Rubro', it.rubro], ['Costo total', tot], ['Materia prima y bases', it.costoReceta], ['Costo indirecto', it.costoIndirecto], ['Packaging', it.costoPackaging], [],
       ['Sección', 'Código', 'Insumo', 'Categoría', 'Cantidad', 'Costo unitario', 'Subtotal', '% del costo']];
-    for (const l of it.receta || []) filas.push(['Receta', l.id, l.denominacion, l.categoria, l.cantidad, l.costo, l.cantidad * l.costo, tot ? l.cantidad * l.costo / tot : '']);
+    for (const l of it.receta || []) { const q = l.cantidad * ex.escala; filas.push(['Receta', l.id, l.denominacion, l.categoria, q, l.costo, q * l.costo, tot ? q * l.costo / tot : '']); }
+    if (ex.lote) filas.push([], ['Nota', `Shares carga la receta para un lote de ${Math.round(ex.rendimiento * 100) / 100} unidades; las cantidades están divididas por el lote.`]);
     for (const l of it.packaging || []) filas.push(['Packaging', l.id, l.denominacion, l.categoria, l.cantidad, l.costo, l.cantidad * l.costo, tot ? l.cantidad * l.costo / tot : '']);
     const hojas = [['Receta', filas, [14, 9, 40, 22, 12, 14, 14, 10]]];
     if (tieneBases) hojas.push(['Abierto a materia prima', [['Código', 'Materia prima', 'Cantidad total', 'Costo unitario', 'Subtotal', '% del costo'],
