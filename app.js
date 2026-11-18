@@ -1363,6 +1363,7 @@ async function vistaAdmin(el) {
 }
 async function adminSalud(el) {
   const s = await api('/api/salud');
+  const rc0 = s.recetas || {};
   const fila = (ok, t, det, prueba, accion = '') => `<tr><td>${ok ? '<span class="badge b-ok">OK</span>' : '<span class="badge b-critica">Falta</span>'}</td><td><b>${t}</b><div class="small muted">${det}</div></td><td>${accion || (prueba ? `<button class="btn btn-chico" data-probar="${prueba}">Probar</button>` : '')}</td></tr>`;
   el.innerHTML = `<table class="sin-orden tabla-salud"><tbody>
     ${fila(s.gemini, 'Gemini (lectura de renglones)', `GEMINI_KEY · modelos ${esc(s.gemini_modelos.join(', '))}${s.gemini_saturado ? ` · <span class="txt-neg">Google estuvo saturado a las ${esc(fmtFH(s.gemini_saturado + 'Z'))}: la lectura se reintenta sola cada 10 minutos</span>` : ''}`, 'gemini')}
@@ -1372,11 +1373,82 @@ async function adminSalud(el) {
     ${(() => { const rc = s.recetas || {}, pt = rc.PRODUCTO_TERMINADO, bs = rc.BASE, er = rc.error;
       const ok = rc.shares && pt && bs && (!er || er.at < (pt.at > bs.at ? pt.at : bs.at));
       return fila(rc.shares, 'Shares (recetas)', `${esc(rc.url || '')}${rc.shares ? '' : ' · faltan SHARES_USERNAME y SHARES_PASSWORD en el Worker'}`, 'shares')
-        + fila(ok, 'Recetas de Shares', `${pt ? `Productos: ${fmtFH(pt.at)} (${pt.cantidad})` : 'Productos: todavía no'} · ${bs ? `Bases: ${fmtFH(bs.at)} (${bs.cantidad})` : 'Bases: todavía no'} · ${rc.materias_primas || 0} materias primas${rc.costos_distintos ? ` · <b>${rc.costos_distintos} con costos distintos en distintas recetas</b>` : ''}${er && (!pt || er.at > pt.at) ? `<br><span class="txt-neg">Último error (${fmtFH(er.at)}): ${esc(er.error)}</span>` : ''} · se traen solas a las 6`, null, puede('editor') ? `<button class="btn btn-chico" id="b-rec">${ICO.refresh}Traer ahora</button>` : '');
+        + fila(ok, 'Recetas de Shares', `${pt ? `Productos: ${fmtFH(pt.at)} (${pt.cantidad})` : 'Productos: todavía no'} · ${bs ? `Bases: ${fmtFH(bs.at)} (${bs.cantidad})` : 'Bases: todavía no'} · ${rc.materias_primas || 0} materias primas${rc.costos_distintos ? ` · <b>${rc.costos_distintos} con costos distintos en distintas recetas</b>` : ''}${[pt, bs].filter(x => x?.recibidos != null && x.recibidos !== x.cantidad).map(x => `<br><span class="txt-neg">${x.tipo === 'BASE' ? 'Bases' : 'Productos'}: Shares mandó ${x.recibidos} y se guardaron ${x.cantidad} (sin código ${x.descartados?.sin_id || 0}, repetidos ${x.descartados?.repetidos || 0}, de otro tipo ${x.descartados?.otro_tipo || 0})</span>`).join('')}${er && (!pt || er.at > pt.at) ? `<br><span class="txt-neg">Último error (${fmtFH(er.at)}): ${esc(er.error)}</span>` : ''} · se traen solas a las 6`, null, puede('editor') ? `<button class="btn btn-chico" id="b-rec">${ICO.refresh}Traer ahora</button>` : '');
     })()}
+    ${puede('admin') && rc0.shares ? fila(true, 'Control contra Shares', 'Le pregunta a Shares las recetas de varias formas y compara costos, recetas y cantidades con lo que tiene la app. Solo lee: no cambia nada.', null, `<button class="btn btn-chico" id="b-ctrl">${ICO.check}Controlar</button>`) : ''}
   </tbody></table><p class="small muted">Versión ${esc(s.version)}</p>`;
+  const bct = $('#b-ctrl', el); if (bct) bct.onclick = () => controlShares();
   const brc = $('#b-rec', el); if (brc) brc.onclick = () => traerRecetas(brc, puede('admin'));
   $$('[data-probar]', el).forEach(b => b.onclick = () => conBoton(b, async () => { const r = await api('/api/probar/' + b.dataset.probar, { method: 'POST' }); toast(r.mensaje); }));
+}
+
+// ---- Control contra Shares: cada consulta es un pedido aparte al Worker (una por vez, para no pasar el tiempo
+// de procesador del plan gratuito). Solo lee. Compara cantidades, costos y recetas, y prueba si Shares pagina.
+const NOMBRE_VARIANTE = { base: 'Consulta normal', sin_tipo: 'Sin filtrar por tipo', pagina_2: 'Página 2 (page=2)', pagina_2_pn: 'Página 2 (pageNumber=2)', tamano_grande: 'Página de 5000',
+  limite: 'Límite 5000', desplazado: 'Salteando las primeras 100', inactivas: 'Pidiendo también inactivas', tipo_minuscula: 'Tipo en minúscula' };
+const CLAVES_PAGINA = /total|count|page|pagina|next|siguiente|more|offset|limit|cursor|links|meta/i;
+async function controlShares() {
+  const { variantes } = await api('/api/recetas/control/variantes');
+  const pasos = [];
+  for (const tipo of ['PRODUCTO_TERMINADO', 'BASE']) for (const v of variantes) if (!(v === 'sin_tipo' && tipo === 'BASE')) pasos.push([tipo, v]);
+  const res = [];
+  modal(`<h2>Control contra Shares</h2><p class="muted" id="ct-est">Consultando Shares… 0 de ${pasos.length}</p><div class="barra-prog"><span id="ct-bar" style="width:0%"></span></div><div id="ct-res"></div>`, {
+    ancho: true,
+    alMontar: async (m, cerrar) => {
+      for (const [k, [tipo, v]] of pasos.entries()) {
+        if (!$('#ct-est', m)) return;   // se cerró la ventana: no se sigue consultando
+        $('#ct-est', m).textContent = `Consultando Shares… ${k + 1} de ${pasos.length}: ${tipo === 'BASE' ? 'bases' : 'productos'}, ${NOMBRE_VARIANTE[v] || v}`;
+        try { res.push(await api(`/api/recetas/control?tipo=${tipo}&v=${v}`)); }
+        catch (e) { res.push({ tipo, variante: v, error: e.message }); }
+        $('#ct-bar', m).style.width = `${(k + 1) / pasos.length * 100}%`;
+      }
+      if (!$('#ct-est', m)) return;
+      $('#ct-est', m).textContent = `Listo: ${pasos.length} consultas a Shares.`;
+      $('#ct-res', m).innerHTML = informeControl(res);
+      const bx = $('#ct-xls', m); if (bx) bx.onclick = () => excelControl(res);
+    },
+  });
+}
+function informeControl(res) {
+  const porTipo = ['PRODUCTO_TERMINADO', 'BASE'].map(tipo => {
+    const base = res.find(r => r.tipo === tipo && r.variante === 'base');
+    const otras = res.filter(r => r.tipo === tipo && r.variante !== 'base');
+    const ids = new Set(base?.ids || []);
+    const filas = otras.map(r => { const nuevos = (r.ids || []).filter(i => !ids.has(i)); return { r, nuevos }; });
+    const pag = (base?.claves || []).filter(k => k !== 'data' && CLAVES_PAGINA.test(k));
+    const problemas = [];
+    if (!base || base.error) problemas.push(`no se pudo consultar (${esc(base?.error || 'sin respuesta')})`);
+    else {
+      if (base.faltan_en_app.n) problemas.push(`${base.faltan_en_app.n} en Shares que no están en la app`);
+      if (base.sobran_en_app.n) problemas.push(`${base.sobran_en_app.n} en la app que Shares ya no manda`);
+      if (base.costos_distintos.n) problemas.push(`${base.costos_distintos.n} con costo distinto`);
+      if (base.recetas_distintas.n) problemas.push(`${base.recetas_distintas.n} con receta distinta`);
+      if (base.sin_id || base.repetidos) problemas.push(`${base.sin_id} sin código y ${base.repetidos} repetidas en la respuesta`);
+      if (pag.length) problemas.push(`la respuesta trae campos de paginación (${pag.map(esc).join(', ')})`);
+      for (const { r, nuevos } of filas) if (nuevos.filter(i => r.tipo === tipo).length && r.variante !== 'sin_tipo') problemas.push(`"${NOMBRE_VARIANTE[r.variante]}" trae ${nuevos.length} que la consulta normal no trae`);
+    }
+    const nombre = tipo === 'BASE' ? 'Bases' : 'Productos terminados';
+    const det = (t, o) => o?.n ? `<details class="defs"><summary>${t} (${o.n})</summary><ul class="small">${o.ej.map(x => `<li>${esc(x.join(' · '))}</li>`).join('')}</ul></details>` : '';
+    return `<section class="panel panel-pad" style="margin-top:14px"><h3 style="margin:0 0 6px">${nombre}: ${problemas.length ? `<span class="txt-neg">${problemas.length} cosa${problemas.length > 1 ? 's' : ''} para revisar</span>` : '<span class="txt-pos">coincide todo</span>'}</h3>
+      ${base && !base.error ? `<p class="small" style="margin:0 0 8px">Shares mandó <b>${base.n}</b> · la app tiene <b>${base.guardadas_activas}</b> activas · última sincronización ${base.ultima_sync ? fmtFH(base.ultima_sync) : '—'} · respuesta en ${(base.ms / 1000).toFixed(1)} s, ${Math.round(base.bytes / 1024)} KB</p>
+        <p class="small muted" style="margin:0 0 8px">La respuesta trae: ${(base.claves || []).map(k => `<code>${esc(k)}</code>${base.meta?.[k] ? ` = ${esc(base.meta[k])}` : ''}`).join(' · ')}</p>
+        ${Object.keys(base.estados || {}).length ? `<p class="small muted" style="margin:0 0 8px">Campos de estado en cada receta: ${Object.entries(base.estados).map(([k, v]) => `<code>${esc(k)}</code> ${Object.entries(v).map(([a, b]) => `${esc(a)}: ${b}`).join(', ')}`).join(' · ')}</p>` : '<p class="small muted" style="margin:0 0 8px">Las recetas no traen ningún campo de activo / inactivo.</p>'}` : ''}
+      ${problemas.length ? `<ul class="small txt-neg" style="margin:0 0 8px">${problemas.map(p => `<li>${p}</li>`).join('')}</ul>` : ''}
+      ${det('Están en Shares y no en la app', base?.faltan_en_app)}${det('Están en la app y Shares ya no las manda', base?.sobran_en_app)}${det('Costo distinto', base?.costos_distintos)}${det('Receta distinta', base?.recetas_distintas)}
+      <div class="tabla-wrap"><table class="sin-orden"><thead><tr><th>Otra forma de pedir</th><th>HTTP</th><th class="num">Recetas</th><th class="num">Nuevas</th><th>Qué devolvió</th></tr></thead><tbody>
+        ${filas.map(({ r, nuevos }) => `<tr><td>${esc(NOMBRE_VARIANTE[r.variante] || r.variante)}<small class="sub-celda mono">${esc(r.ruta || '')}</small></td><td>${r.error ? '—' : r.status}</td><td class="num">${r.n ?? '—'}</td>
+          <td class="num ${nuevos.length && r.variante !== 'sin_tipo' ? 'txt-neg' : ''}">${r.ids && r.variante !== 'sin_tipo' ? nuevos.length : '—'}</td><td class="small">${r.error ? esc(r.error) : r.n == null ? esc(r.texto || r.data_tipo || '') : r.variante === 'sin_tipo' ? `tipos: ${Object.entries(r.tipos || {}).map(([a, b]) => `${esc(a)} ${b}`).join(', ')}` : sameIds(r.ids, base?.ids) ? 'las mismas que la normal' : 'distinto a la normal'}</td></tr>`).join('')}
+      </tbody></table></div></section>`;
+  });
+  return porTipo.join('') + `<div class="acciones" style="margin-top:14px;justify-content:flex-end"><button class="btn" id="ct-xls">${ICO.download}Descargar detalle</button></div>`;
+}
+const sameIds = (a, b) => !!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]);
+function excelControl(res) {
+  const filas = [['Tipo', 'Forma de pedir', 'Ruta', 'HTTP', 'Recetas', 'Sin código', 'Repetidas', 'Campos de la respuesta', 'Error']];
+  for (const r of res) filas.push([r.tipo, NOMBRE_VARIANTE[r.variante] || r.variante, r.ruta || '', r.status ?? '', r.n ?? '', r.sin_id ?? '', r.repetidos ?? '', (r.claves || []).join(', '), r.error || '']);
+  const dif = [['Tipo', 'Qué', 'Código', 'Nombre', 'Detalle']];
+  for (const r of res.filter(x => x.variante === 'base' && !x.error)) for (const [k, t] of [['faltan_en_app', 'En Shares, no en la app'], ['sobran_en_app', 'En la app, no en Shares'], ['costos_distintos', 'Costo distinto'], ['recetas_distintas', 'Receta distinta']]) for (const e of r[k].ej) dif.push([r.tipo, t, e[0], e[1], e[2] || '']);
+  descargarXlsx(`control-shares-${new Date().toISOString().slice(0, 10)}.xlsx`, [['Consultas', filas, [20, 26, 60, 8, 10, 10, 10, 40, 40]], ['Diferencias', dif, [20, 24, 10, 40, 50]]]);
 }
 
 // ---------------------------------------------------------------------------

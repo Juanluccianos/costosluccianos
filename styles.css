@@ -1031,6 +1031,10 @@ tr.fila-desc td { background: var(--pos-bg); }
   .cfg-ctrl { justify-content: flex-start; }
 }
 
+/* Control contra Shares */
+.barra-prog { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin: 6px 0 4px; }
+.barra-prog span { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+
 /* Imprimir / PDF: solo el contenido */
 @media print {
   @page { size: A4; margin: 12mm; }
