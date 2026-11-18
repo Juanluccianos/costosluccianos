@@ -992,6 +992,45 @@ tr.fila-desc td { background: var(--pos-bg); }
   .tb-tabla th, .tb-tabla td { padding-left: 8px; padding-right: 8px; font-size: 13px; }
   .tb-tabla th { font-size: 10.5px; }
 }
+
+/* ---------- 11. Prolijidad 1.6.1 ---------- */
+/* Espacio parejo entre bloques: también entre dos filas de paneles seguidas */
+.dos + .dos, .kpis + .dos { margin-top: 16px; }
+.dos > .panel { display: flex; flex-direction: column; }
+.dos > .panel > .panel-pad, .dos > .panel > #tb-prov-c { flex: 1; }
+/* Barras de filtros: buscador que crece, filtros a su ancho, todo en una línea mientras entre */
+.cola-bar { justify-content: flex-start; }
+.cola-bar .campo-buscar { flex: 1 1 240px; }
+.cola-bar .campo-mp { flex: 0 1 260px; }
+.cola-bar select { width: auto; min-width: 150px; max-width: 280px; flex: 0 0 auto; }
+.cola-bar .seg { flex: 0 0 auto; }
+.cola-bar .campo-buscar, .cola-bar select { height: 40px; box-sizing: border-box; }
+.cola-bar .campo-buscar input { height: 38px; padding-top: 0; padding-bottom: 0; }
+.acciones select { width: auto; }
+.acciones { align-items: center; }
+/* Aviso de una línea con ícono al lado */
+.aviso-linea { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+.aviso-linea svg.i { width: 16px; height: 16px; flex: none; }
+/* Salud: estado, detalle y acción en columnas fijas */
+.tabla-salud td { vertical-align: middle; }
+.tabla-salud td:first-child { width: 72px; }
+.tabla-salud td:last-child { width: 1%; white-space: nowrap; text-align: right; }
+.tabla-salud .btn svg.i { width: 15px; height: 15px; }
+/* Configuración: control a la derecha y unidad con ancho fijo, así todos los campos quedan en la misma línea */
+.cfg-row { grid-template-columns: minmax(0, 1fr) 260px; }
+.cfg-ctrl { flex-wrap: nowrap; }
+.cfg-ctrl input[type="number"] { width: 110px; }
+.cfg-suf { display: inline-block; width: 64px; flex: none; text-align: left; font-size: 14px; }
+.cfg-ctrl .sw-txt { max-width: none; }
+.cfg-ctrl:has(.seg), .cfg-ctrl:has([data-tel]) { flex-wrap: wrap; }
+.cfg-row:has(.seg), .cfg-row:has([data-tel]) { grid-template-columns: minmax(0, 1fr) auto; }
+@media (max-width: 720px) {
+  .cola-bar .campo-mp { flex: 1 1 100%; max-width: none; }
+  .cola-bar select { flex: 1 1 100%; max-width: none; }
+  .cfg-row, .cfg-row:has(.seg) { grid-template-columns: minmax(0, 1fr); }
+  .cfg-ctrl { justify-content: flex-start; }
+}
+
 /* Imprimir / PDF: solo el contenido */
 @media print {
   @page { size: A4; margin: 12mm; }

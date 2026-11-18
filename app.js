@@ -666,13 +666,15 @@ async function vistaAlertas(el) {
   let ver = sessionStorage.getItem('al_ver') || 'sin_ver', tipo = sessionStorage.getItem('al_tipo') || '';
   el.innerHTML = `<div class="encabezado"><div><h1>Alertas</h1><p>Subas de precio, compras por encima del promedio y proveedores más caros que otro por el mismo insumo.</p></div>
       <div class="acciones"><button class="btn" id="b-todas">${ICO.check}Marcar todas como vistas</button></div></div>
-    <div class="panel"><div class="cola-bar">
+    <div class="panel"><div class="cola-bar"><label class="campo-buscar">${ICO.search}<input id="q-al" placeholder="Insumo, rubro o proveedor"></label>
       <div class="seg" id="seg-ver" style="margin:0">${[['sin_ver', 'Sin ver'], ['todas', 'Todas']].map(([k, t]) => `<button data-v="${k}" class="${k === ver ? 'on' : ''}">${t}</button>`).join('')}</div>
       <select id="f-tipo" style="max-width:240px"><option value="">Todos los tipos</option>${Object.entries(TIPO_ALERTA).map(([k, v]) => `<option value="${k}" ${tipo === k ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></div>
       <div class="tabla-wrap"><table><thead><tr><th>Insumo</th><th>Qué pasó</th><th>Fecha</th><th class="num">Pagado</th><th class="num">Referencia</th><th class="num">Variación</th><th></th></tr></thead><tbody id="tb"><tr><td colspan="7" class="vacio"><span class="cargando"></span></td></tr></tbody></table></div></div>`;
   const cargar = async () => {
     const p = new URLSearchParams({ ver }); if (tipo) p.set('tipo', tipo);
     const r = await api('/api/alertas?' + p);
+    const qa = normQ($('#q-al').value).trim();
+    if (qa) r.alertas = r.alertas.filter(a => normQ(`${a.insumo} ${a.rubro || ''} ${textoAlerta(a)} ${a.ref_detalle || ''} ${a.proveedor || ''}`).includes(qa));
     $('#tb').innerHTML = r.alertas.length ? r.alertas.map(a => `<tr class="click ${a.vista ? 'vista' : ''}" data-ins="${a.insumo_id}">
         <td><div class="prov">${cuad(a.insumo)}<div><b>${esc(a.insumo)}</b><small>${esc(a.rubro || '')}</small></div></div></td>
         <td>${badgeAlerta(a.tipo)}<small class="sub-celda">${esc(textoAlerta(a))}</small></td>
@@ -681,11 +683,12 @@ async function vistaAlertas(el) {
         <td class="num">${fmtP(a.precio_ref, a.unidad)}<small class="sub-celda">${esc(String(a.ref_detalle || '').replace(/\s*\((\d{4})-(\d{2})-(\d{2})\)$/, ' ($3/$2)').replace(/del (\d{4})-(\d{2})-(\d{2})/, 'del $3/$2'))}</small></td>
         <td class="num">${chipVar(a.variacion_pct)}</td>
         <td>${a.vista ? `<small class="muted">Vista</small>` : `<button class="btn btn-chico" data-vista="${a.id}" title="Marcar como vista">${ICO.check}Vista</button>`}</td></tr>`).join('')
-      : `<tr><td colspan="7" class="vacio">${ver === 'sin_ver' ? '<span class="grande">Nada nuevo</span>No hay alertas sin ver.' : 'No hay alertas.'}</td></tr>`;
+      : `<tr><td colspan="7" class="vacio">${qa ? 'Ninguna alerta coincide con la búsqueda.' : ver === 'sin_ver' ? '<span class="grande">Nada nuevo</span>No hay alertas sin ver.' : 'No hay alertas.'}</td></tr>`;
     $$('#tb tr[data-ins]').forEach(tr => tr.onclick = (e) => { if (e.target.closest('button')) return; location.hash = '#/insumo/' + tr.dataset.ins; });
     $$('[data-vista]').forEach(b => b.onclick = () => conBoton(b, async () => { await api('/api/alertas/vistas', { method: 'POST', body: { ids: [Number(b.dataset.vista)] } }); S.cnt = null; contadores(); cargar(); }));
   };
   $$('#seg-ver button').forEach(b => b.onclick = () => { ver = b.dataset.v; sessionStorage.setItem('al_ver', ver); $$('#seg-ver button').forEach(x => x.classList.toggle('on', x === b)); cargar(); });
+  let tq; $('#q-al').oninput = () => { clearTimeout(tq); tq = setTimeout(cargar, 250); };
   $('#f-tipo').onchange = () => { tipo = $('#f-tipo').value; sessionStorage.setItem('al_tipo', tipo); cargar(); };
   $('#b-todas').onclick = async () => { if (!await confirmar('¿Marcar todas las alertas como vistas?')) return; await conBoton($('#b-todas'), async () => { await api('/api/alertas/vistas', { method: 'POST', body: { todas: true } }); S.cnt = null; contadores(); cargar(); }); };
   await cargar();
@@ -708,18 +711,20 @@ function sparkline(serie) {
 
 async function vistaInsumos(el) {
   const q0 = sessionStorage.getItem('ins_q') || ''; sessionStorage.removeItem('ins_q');
-  let rubro = sessionStorage.getItem('ins_rubro') || '', soloAlertas = false;
+  let rubro = sessionStorage.getItem('ins_rubro') || '', ver = sessionStorage.getItem('ins_ver') || '';
+  const hace60 = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
+  const pasa = (i) => !ver || (ver === 'sube' ? i.var_ant > 0.05 : ver === 'baja' ? i.var_ant < -0.05 : ver === 'alertas' ? i.alertas > 0 : ver === 'multi' ? i.proveedores > 1 : !i.ult_fecha || i.ult_fecha < hace60);
   const r = await api('/api/insumos');
   const rubros = [...new Set(r.insumos.map(i => i.rubro).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
   el.innerHTML = `<div class="encabezado"><div><h1>Insumos</h1><p>Último precio pagado por ${'kg, litro o unidad'} (neto, sin IVA) y cómo viene variando.</p></div>
       <div class="acciones"><button class="btn" id="b-csv">${ICO.doc}Exportar CSV</button>${puede('editor') ? `<button class="btn btn-negro" id="b-nuevo">${ICO.box}Nuevo insumo</button>` : ''}</div></div>
     <div class="panel"><div class="cola-bar"><label class="campo-buscar">${ICO.search}<input id="q" placeholder="Insumo o proveedor" value="${esc(q0)}"></label>
       <select id="f-rubro" style="max-width:220px"><option value="">Todos los rubros</option>${rubros.map(x => `<option ${x === rubro ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
-      <label class="check"><input type="checkbox" id="f-al"> Con alertas sin ver</label></div>
+      <select id="f-ver">${[['', 'Todos los insumos'], ['sube', 'Subieron en la última compra'], ['baja', 'Bajaron en la última compra'], ['alertas', 'Con alertas sin ver'], ['multi', 'Comprados a más de un proveedor'], ['viejo', 'Sin compras hace más de 60 días']].map(([k, t]) => `<option value="${k}" ${k === ver ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div class="tabla-wrap"><table class="tabla-ins"><thead><tr><th>Insumo</th><th class="num">Último precio</th><th class="num">vs. anterior</th><th class="num">vs. promedio</th><th>Tendencia</th><th>Última compra</th><th class="num">Compras</th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
   const pintar = () => {
     const q = normQ($('#q').value);
-    const lista = r.insumos.filter(i => (!rubro || i.rubro === rubro) && (!soloAlertas || i.alertas) && (!q || normQ(i.nombre + ' ' + (i.rubro || '') + ' ' + (i.ult_proveedor || '')).includes(q)));
+    const lista = r.insumos.filter(i => (!rubro || i.rubro === rubro) && pasa(i) && (!q || normQ(i.nombre + ' ' + (i.rubro || '') + ' ' + (i.ult_proveedor || '')).includes(q)));
     $('#tb').innerHTML = lista.length ? lista.map(i => `<tr class="click ${i.activo ? '' : 'inactivo'}" data-id="${i.id}">
         <td><div class="prov">${cuad(i.nombre)}<div><b>${esc(i.nombre)}</b><small>${i.alertas ? `<span class="txt-neg">${i.alertas} alerta${i.alertas > 1 ? 's' : ''}</span> · ` : ''}${esc(i.rubro || 'Sin rubro')} · por ${esc(UNI[i.unidad])}${i.activo ? '' : ' · inactivo'}</small></div></div></td>
         <td class="num" data-orden="${i.ult_precio ?? ''}"><b>${fmtP(i.ult_precio, i.unidad)}</b></td>
@@ -733,7 +738,7 @@ async function vistaInsumos(el) {
   };
   $('#q').oninput = pintar;
   $('#f-rubro').onchange = () => { rubro = $('#f-rubro').value; sessionStorage.setItem('ins_rubro', rubro); pintar(); };
-  $('#f-al').onchange = () => { soloAlertas = $('#f-al').checked; pintar(); };
+  $('#f-ver').onchange = () => { ver = $('#f-ver').value; sessionStorage.setItem('ins_ver', ver); pintar(); };
   $('#b-csv').onclick = () => descargarCsv(`insumos_${new Date().toISOString().slice(0, 10)}.csv`, [
     ['Insumo', 'Rubro', 'Unidad', 'Último precio', 'Fecha', 'Proveedor', 'Precio anterior (mismo proveedor)', 'Var. vs anterior %', 'Promedio', 'Var. vs promedio %', 'Compras'],
     ...r.insumos.map(i => [i.nombre, i.rubro || '', i.unidad, dec(i.ult_precio), i.ult_fecha || '', i.ult_proveedor || '', dec(i.ant_precio), dec(i.var_ant), dec(i.prom_precio), dec(i.var_prom), i.compras || 0]),
@@ -1058,26 +1063,29 @@ function modalVincular(g, insumos, alTerminar) {
 //  Facturas leídas
 // ---------------------------------------------------------------------------
 async function vistaFacturas(el) {
-  let lectura = sessionStorage.getItem('fac_lect') || '';
+  let lectura = sessionStorage.getItem('fac_lect') || '', mes = sessionStorage.getItem('fac_mes') || '';
   el.innerHTML = `<div class="encabezado"><div><h1>Facturas leídas</h1><p>Facturas de materia prima traídas de la app de facturas de proveedores, con sus renglones.</p></div>
       ${puede('editor') ? `<div class="acciones"><button class="btn" id="b-sync">${ICO.refresh}Sincronizar ahora</button></div>` : ''}</div>
     <div class="panel"><div class="cola-bar"><label class="campo-buscar">${ICO.search}<input id="q" placeholder="Proveedor, CUIT, número o #id"></label>
-      <div class="seg" id="seg-l" style="margin:0">${[['', 'Todas'], ['ok', 'Leídas'], ['revisar', 'No cierran'], ['pendiente', 'En cola'], ['error', 'Con error'], ['espera', 'Esperando'], ['duplicada', 'Duplicadas']].map(([k, t]) => `<button data-l="${k}" class="${k === lectura ? 'on' : ''}">${t}</button>`).join('')}</div></div>
+      <select id="f-mes" aria-label="Mes">${[['', 'Todos los meses'], ...Array.from({ length: 12 }, (_, k) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - k); const ym = d.toISOString().slice(0, 7); return [ym, d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }).replace(/^./, c => c.toUpperCase())]; })].map(([k, t]) => `<option value="${k}" ${k === mes ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      <select id="f-lect" aria-label="Estado de lectura">${[['', 'Todos los estados'], ['ok', 'Leídas'], ['revisar', 'No cierran'], ['pendiente', 'En cola'], ['error', 'Con error'], ['espera', 'Esperando'], ['duplicada', 'Duplicadas']].map(([k, t]) => `<option value="${k}" ${k === lectura ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div class="tabla-wrap"><table><thead><tr><th>Proveedor</th><th>Comprobante</th><th>Fecha</th><th class="num">Neto</th><th class="num">Renglones</th><th>Lectura</th></tr></thead><tbody id="tb"><tr><td colspan="6" class="vacio"><span class="cargando"></span></td></tr></tbody></table></div></div>`;
   const cargar = async () => {
     const p = new URLSearchParams(); if (lectura) p.set('lectura', lectura); if ($('#q').value.trim()) p.set('q', $('#q').value.trim());
     const r = await api('/api/facturas?' + p);
+    if (mes) r.facturas = r.facturas.filter(f => String(f.fecha || '').startsWith(mes));
     $('#tb').innerHTML = r.facturas.length ? r.facturas.map(f => `<tr class="click" data-id="${f.id}">
         <td><div class="prov">${cuad(f.razon_social)}<div><b>${esc(f.razon_social || 'Sin identificar')}</b><small class="mono">${fmtCuit(f.cuit)} · #${f.id}</small></div></div></td>
         <td class="mono">${esc(TIPOS[f.tipo] || '')} ${nroCbte(f)}</td><td class="mono">${fmtF(f.fecha)}</td>
         <td class="num">${$$mon(f.neto, f.moneda)}${f.descuento_pct ? `<small class="sub-celda txt-pos">bonif. general ${dec(f.descuento_pct)} %</small>` : ''}</td>
         <td class="num">${f.n_renglones || '—'}${f.n_renglones ? `<small class="sub-celda">${f.n_vinculados === f.n_renglones ? 'todos vinculados' : `${f.n_renglones - f.n_vinculados} sin vincular`}</small>` : ''}</td>
         <td>${badgeLectura(f.lectura)}${f.lectura_motivo && f.lectura !== 'ok' ? `<small class="sub-celda motivo-rech">${esc(f.lectura_motivo)}</small>` : ''}</td></tr>`).join('')
-      : `<tr><td colspan="6" class="vacio">${lectura || $('#q').value ? 'Nada coincide con el filtro.' : '<span class="grande">Todavía no hay facturas</span>Se traen solas de la app de facturas cada 10 minutos.'}</td></tr>`;
+      : `<tr><td colspan="6" class="vacio">${lectura || mes || $('#q').value ? 'Nada coincide con el filtro.' : '<span class="grande">Todavía no hay facturas</span>Se traen solas de la app de facturas cada 10 minutos.'}</td></tr>`;
     $$('#tb tr[data-id]').forEach(tr => tr.onclick = () => irFactura(tr.dataset.id));
   };
   let t0; $('#q').oninput = () => { clearTimeout(t0); t0 = setTimeout(cargar, 300); };
-  $$('#seg-l button').forEach(b => b.onclick = () => { lectura = b.dataset.l; sessionStorage.setItem('fac_lect', lectura); $$('#seg-l button').forEach(x => x.classList.toggle('on', x === b)); cargar(); });
+  $('#f-mes').onchange = (e) => { mes = e.target.value; sessionStorage.setItem('fac_mes', mes); cargar(); };
+  $('#f-lect').onchange = (e) => { lectura = e.target.value; sessionStorage.setItem('fac_lect', lectura); cargar(); };
   const bs = $('#b-sync'); if (bs) bs.onclick = () => conBoton(bs, sincronizarAhora);
   await cargar();
 }
@@ -1355,8 +1363,8 @@ async function vistaAdmin(el) {
 }
 async function adminSalud(el) {
   const s = await api('/api/salud');
-  const fila = (ok, t, det, prueba) => `<tr><td>${ok ? '<span class="badge b-ok">OK</span>' : '<span class="badge b-critica">Falta</span>'}</td><td><b>${t}</b><div class="small muted">${det}</div></td><td>${prueba ? `<button class="btn btn-chico" data-probar="${prueba}">Probar</button>` : ''}</td></tr>`;
-  el.innerHTML = `<table class="sin-orden"><tbody>
+  const fila = (ok, t, det, prueba, accion = '') => `<tr><td>${ok ? '<span class="badge b-ok">OK</span>' : '<span class="badge b-critica">Falta</span>'}</td><td><b>${t}</b><div class="small muted">${det}</div></td><td>${accion || (prueba ? `<button class="btn btn-chico" data-probar="${prueba}">Probar</button>` : '')}</td></tr>`;
+  el.innerHTML = `<table class="sin-orden tabla-salud"><tbody>
     ${fila(s.gemini, 'Gemini (lectura de renglones)', `GEMINI_KEY · modelos ${esc(s.gemini_modelos.join(', '))}${s.gemini_saturado ? ` · <span class="txt-neg">Google estuvo saturado a las ${esc(fmtFH(s.gemini_saturado + 'Z'))}: la lectura se reintenta sola cada 10 minutos</span>` : ''}`, 'gemini')}
     ${fila(s.facturas_binding && s.costos_secret, 'App de facturas de proveedores', `Service binding FACTURAS ${s.facturas_binding ? 'cargado' : 'falta'} · COSTOS_SECRET ${s.costos_secret ? 'cargado' : 'falta'}`, 'facturas')}
     ${fila(!!s.ultima_sync, 'Sincronización', s.ultima_sync ? `Última: ${fmtFH(s.ultima_sync + 'Z')} · hasta la factura #${esc(s.cursor || 0)}` : 'Todavía no corrió. Corre sola cada 10 minutos (Cron Trigger).')}
@@ -1364,7 +1372,7 @@ async function adminSalud(el) {
     ${(() => { const rc = s.recetas || {}, pt = rc.PRODUCTO_TERMINADO, bs = rc.BASE, er = rc.error;
       const ok = rc.shares && pt && bs && (!er || er.at < (pt.at > bs.at ? pt.at : bs.at));
       return fila(rc.shares, 'Shares (recetas)', `${esc(rc.url || '')}${rc.shares ? '' : ' · faltan SHARES_USERNAME y SHARES_PASSWORD en el Worker'}`, 'shares')
-        + fila(ok, 'Recetas de Shares', `${pt ? `Productos: ${fmtFH(pt.at)} (${pt.cantidad})` : 'Productos: todavía no'} · ${bs ? `Bases: ${fmtFH(bs.at)} (${bs.cantidad})` : 'Bases: todavía no'} · ${rc.materias_primas || 0} materias primas${rc.costos_distintos ? ` · <b>${rc.costos_distintos} con costos distintos en distintas recetas</b>` : ''}${er && (!pt || er.at > pt.at) ? `<br><span class="txt-neg">Último error (${fmtFH(er.at)}): ${esc(er.error)}</span>` : ''}<br>Se traen solas una vez por día, desde las 6. ${puede('editor') ? '<button class="btn btn-chico" id="b-rec" style="margin-top:6px">Traer ahora</button>' : ''}`);
+        + fila(ok, 'Recetas de Shares', `${pt ? `Productos: ${fmtFH(pt.at)} (${pt.cantidad})` : 'Productos: todavía no'} · ${bs ? `Bases: ${fmtFH(bs.at)} (${bs.cantidad})` : 'Bases: todavía no'} · ${rc.materias_primas || 0} materias primas${rc.costos_distintos ? ` · <b>${rc.costos_distintos} con costos distintos en distintas recetas</b>` : ''}${er && (!pt || er.at > pt.at) ? `<br><span class="txt-neg">Último error (${fmtFH(er.at)}): ${esc(er.error)}</span>` : ''} · se traen solas a las 6`, null, puede('editor') ? `<button class="btn btn-chico" id="b-rec">${ICO.refresh}Traer ahora</button>` : '');
     })()}
   </tbody></table><p class="small muted">Versión ${esc(s.version)}</p>`;
   const brc = $('#b-rec', el); if (brc) brc.onclick = () => traerRecetas(brc, puede('admin'));
@@ -1476,8 +1484,8 @@ async function adminConfig(el) {
   };
   const control = (it) => {
     const v = cfg[it.k];
-    if (it.tipo === 'switch') return `<label class="switch"><input type="checkbox" data-sw="${it.k}" ${v ? 'checked' : ''} aria-label="${esc(it.t)}"><span></span></label><span class="sw-txt" data-swtxt="${it.k}">${esc(v ? (it.si || 'Activado') : (it.no || 'Apagado'))}</span>`;
-    if (it.tipo === 'numero') return `${it.pre ? `<span class="muted">${it.pre}</span>` : ''}<input type="number" data-num="${it.k}" value="${esc(v)}" min="0" step="${it.step || 1}" inputmode="decimal">${it.suf ? `<span class="muted">${it.suf}</span>` : ''}`;
+    if (it.tipo === 'switch') return `<label class="switch"><input type="checkbox" data-sw="${it.k}" ${v ? 'checked' : ''} aria-label="${esc(it.t)}"><span></span></label><span class="sw-txt cfg-suf" data-swtxt="${it.k}">${esc(v ? (it.si || 'Activado') : (it.no || 'Apagado'))}</span>`;
+    if (it.tipo === 'numero') return `${it.pre ? `<span class="muted">${it.pre}</span>` : ''}<input type="number" data-num="${it.k}" value="${esc(v)}" min="0" step="${it.step || 1}" inputmode="decimal"><span class="cfg-suf muted">${it.suf || ''}</span>`;
     if (it.tipo === 'opciones') return `<div class="seg" data-op="${it.k}">${it.ops.map(([val, txt]) => `<button type="button" data-v="${val}" class="${v === val ? 'on' : ''}">${txt}</button>`).join('')}</div>`;
     if (it.tipo === 'dia') return `<div class="seg" data-op="${it.k}" data-numerico="1">${DIAS_SEMANA.map(([val, txt]) => `<button type="button" data-v="${val}" class="${String(v) === val ? 'on' : ''}">${txt}</button>`).join('')}</div>`;
     if (it.tipo === 'tel') return `<span class="muted">${ICO.phone}</span><input data-tel="${it.k}" value="${esc(v || '')}" placeholder="5492235123456" inputmode="tel" style="width:190px"><button class="btn btn-chico" data-tel-ok="${it.k}">Guardar</button>`;
@@ -1825,7 +1833,7 @@ function barraComposicionR(it, ex = explotarR(it)) {
 const PERIODOS_R = [[7, '7 días'], [30, '30 días'], [90, '90 días'], [365, '1 año']];
 const selPeriodo = (id, dias) => `<select id="${id}" aria-label="Período">${PERIODOS_R.map(([d, t]) => `<option value="${d}" ${d === dias ? 'selected' : ''}>Variación: últimos ${t}</option>`).join('')}</select>`;
 const avisoHistorialR = (ch) => ch.historial_desde && ch.historial_desde > ch.desde
-  ? `<p class="small muted" style="margin:0 0 12px">${ICO.info} El historial de Shares arranca el ${fmtF(ch.historial_desde)} (la primera vez que se trajeron las recetas): las variaciones se miden desde ahí.</p>` : '';
+  ? `<p class="aviso-linea">${ICO.info}<span>Las variaciones se miden desde el ${fmtF(ch.historial_desde)}, la primera vez que se trajeron las recetas de Shares.</span></p>` : '';
 
 function sinRecetas(el, titulo) {
   const s = R.cat?.sync || {};
@@ -1856,17 +1864,21 @@ async function vistaRecLista(el, tipo) {
   const lista = recItems(tipo);
   if (!lista.length) return sinRecetas(el, titulo);
   const rubros = [...new Set(lista.map(i => i.rubro).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
-  let q = '', rubro = sessionStorage.getItem('rubro_' + tipo) || '', dias = Number(sessionStorage.getItem('rec_periodo')) || 30, ch;
+  let q = '', qmp = '', rubro = sessionStorage.getItem('rubro_' + tipo) || '', dias = Number(sessionStorage.getItem('rec_periodo')) || 30, ch;
+  // Productos que llevan alguna materia prima cuyo nombre contiene el texto (directa o dentro de una base)
+  const conMp = (txt) => { const t = normQ(txt).trim(); if (!t) return null; const set = new Set(); for (const [id, us] of usosR().mp) { const m = R.mp.get(id); if (m && normQ(m.denominacion).includes(t)) for (const x of us) set.add(x.item); } return set; };
   el.innerHTML = `<div class="encabezado"><div><h1>${titulo}</h1><p>${esPT ? 'Costo de cada producto según Shares: materia prima y bases, costo indirecto del rubro y packaging.' : 'Recetas intermedias que se usan dentro de los productos (y a veces dentro de otras bases).'} Tocá uno para ver su receta.</p></div>
     <div class="acciones"><button class="btn" id="b-exp">${ICO.download}Descargar Excel</button></div></div>
     <div class="panel"><div class="cola-bar"><label class="campo-buscar">${ICO.search}<input id="q" placeholder="Nombre o código"></label>
-      <select id="f-r" style="max-width:220px"><option value="">Todos los rubros</option>${rubros.map(r => `<option ${r === rubro ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>${selPeriodo('f-p', dias)}</div>
+      <label class="campo-buscar campo-mp" title="Muestra solo los que llevan esa materia prima, directa o dentro de una base">${ICO.layers}<input id="q-mp" placeholder="Que lleve… (ej. pistacho)" list="dl-mp"></label><datalist id="dl-mp">${[...usosR().mp.keys()].map(id => R.mp.get(id)).filter(Boolean).sort((a, b) => a.denominacion.localeCompare(b.denominacion, 'es')).map(m => `<option value="${esc(m.denominacion)}">`).join('')}</datalist>
+      <select id="f-r"><option value="">Todos los rubros</option>${rubros.map(r => `<option ${r === rubro ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>${selPeriodo('f-p', dias)}</div>
       <div class="tabla-wrap"><table><thead><tr><th>Código</th><th>${esPT ? 'Producto' : 'Base'}</th><th>Rubro</th><th class="num">Costo total</th><th class="num">Materia prima</th><th class="num">Indirecto</th>${esPT ? '<th class="num">Packaging</th>' : ''}<th class="num">Variación</th></tr></thead><tbody id="tb"></tbody></table></div>
       <div class="paginacion" id="pag"></div></div>`;
   const pintar = async () => {
     ch = await cargarCambiosR(dias);
     const qq = normQ(q);
-    const f = lista.filter(i => (!rubro || i.rubro === rubro) && (!qq || normQ(i.denominacion).includes(qq) || String(i.id) === qq.trim()));
+    const lleva = conMp(qmp);
+    const f = lista.filter(i => (!rubro || i.rubro === rubro) && (!lleva || lleva.has(i)) && (!qq || normQ(i.denominacion).includes(qq) || String(i.id) === qq.trim()));
     $('#tb').innerHTML = f.map(i => { const a = ch.items.get(kItem(i.tipo, i.id)); const p = varPctR(a?.costoTotal, i.costoTotal);
       return `<tr class="click" data-href="#/receta/${i.tipo}/${i.id}"><td class="mono">${i.id}</td><td>${esc(i.denominacion)}</td><td class="small">${esc(i.rubro || '—')}</td>
         <td class="num" data-orden="${i.costoTotal}"><b>${$$m(i.costoTotal)}</b></td><td class="num" data-orden="${i.costoReceta}">${$$m(i.costoReceta)}</td><td class="num" data-orden="${i.costoIndirecto}">${$$m(i.costoIndirecto)}</td>
@@ -1876,6 +1888,7 @@ async function vistaRecLista(el, tipo) {
   };
   let t;
   $('#q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { q = e.target.value; pintar(); }, 200); };
+  $('#q-mp').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { qmp = e.target.value; pintar(); }, 250); };
   $('#f-r').onchange = (e) => { rubro = e.target.value; sessionStorage.setItem('rubro_' + tipo, rubro); pintar(); };
   $('#f-p').onchange = (e) => { dias = Number(e.target.value); sessionStorage.setItem('rec_periodo', dias); pintar(); };
   $('#b-exp').onclick = () => {
@@ -1963,18 +1976,23 @@ async function vistaMPs(el) {
   if (!R.cat.items.length) return sinRecetas(el, 'Materias primas de Shares');
   const u = usosR();
   const activas = [...R.mp.values()].filter(m => u.mp.has(m.id));
-  let q = '', dias = Number(sessionStorage.getItem('rec_periodo')) || 30, solo = sessionStorage.getItem('mp_solo') || '', ch;
+  let q = '', dias = Number(sessionStorage.getItem('rec_periodo')) || 30, solo = sessionStorage.getItem('mp_solo') || '', cat = sessionStorage.getItem('mp_cat') || '', ch;
+  const cats = [...new Set(activas.map(m => m.categoria).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  const umbral = S.cfg?.umbral_shares_pct || (S.cfg = (await api('/api/config').catch(() => ({ config: {} }))).config).umbral_shares_pct || 10;
+  const lejos = (m) => { const pr = precioRealMp(m.id); return !!pr && Math.abs(varPctR(m.costo, pr.precio) ?? 0) >= umbral; };
   const nPT = (id) => (u.mp.get(id) || []).filter(x => x.item.tipo === 'PRODUCTO_TERMINADO').length;
   el.innerHTML = `<div class="encabezado"><div><h1>Materias primas de Shares</h1><p>El costo unitario que usa Shares en las recetas, en cuántos productos pesa y, si está unida a un insumo de esta app, el precio de la última compra.</p></div>
     <div class="acciones"><button class="btn" id="b-exp">${ICO.download}Descargar Excel</button></div></div>
     <div class="panel"><div class="cola-bar"><label class="campo-buscar">${ICO.search}<input id="q" placeholder="Nombre o código"></label>
-      <select id="f-s" style="max-width:240px"><option value="">Todas</option><option value="unidas" ${solo === 'unidas' ? 'selected' : ''}>Unidas a un insumo</option><option value="sin" ${solo === 'sin' ? 'selected' : ''}>Sin unir</option></select>${selPeriodo('f-p', dias)}</div>
+      ${cats.length > 1 ? `<select id="f-cat"><option value="">Todas las categorías</option>${cats.map(x => `<option ${x === cat ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}
+      <select id="f-s"><option value="">Unidas y sin unir</option><option value="unidas" ${solo === 'unidas' ? 'selected' : ''}>Unidas a un insumo</option><option value="sin" ${solo === 'sin' ? 'selected' : ''}>Sin unir</option><option value="lejos" ${solo === 'lejos' ? 'selected' : ''}>Compra lejos de Shares (${umbral} % o más)</option></select>${selPeriodo('f-p', dias)}</div>
       <div class="tabla-wrap"><table><thead><tr><th>Código</th><th>Materia prima</th><th class="num">Costo en Shares</th><th class="num">Última compra</th><th class="num">Compra vs Shares</th><th class="num">Productos</th><th class="num">Variación en Shares</th></tr></thead><tbody id="tb"></tbody></table></div>
       <div class="paginacion" id="pag"></div></div>`;
   const pintar = async () => {
     ch = await cargarCambiosR(dias);
     const qq = normQ(q);
-    const f = activas.filter(m => (!qq || normQ(m.denominacion).includes(qq) || String(m.id) === qq.trim()) && (!solo || (solo === 'unidas') === R.insPorMp.has(m.id)));
+    const f = activas.filter(m => (!qq || normQ(m.denominacion).includes(qq) || String(m.id) === qq.trim()) && (!cat || m.categoria === cat)
+      && (!solo || (solo === 'lejos' ? lejos(m) : (solo === 'unidas') === R.insPorMp.has(m.id))));
     $('#tb').innerHTML = f.map(m => { const a = ch.mp.get(m.id), pr = precioRealMp(m.id), n = nPT(m.id), dif = pr ? varPctR(m.costo, pr.precio) : null;
       return `<tr class="click" data-href="#/mp/${m.id}"><td class="mono">${m.id}</td><td>${esc(m.denominacion)}${m.costos_distintos > 1 ? ' <span class="badge b-warn" title="Shares la valúa distinto según la receta">costos distintos</span>' : ''}${R.insPorMp.has(m.id) ? `<small class="sub-celda">${ICO.link} ${esc(R.insPorMp.get(m.id).map(i => i.nombre).join(', '))}</small>` : ''}</td>
         <td class="num" data-orden="${m.costo}"><b>${$$u(m.costo)}</b></td><td class="num" data-orden="${pr?.precio ?? ''}">${pr ? `${$$u(pr.precio)}<small class="sub-celda">${fmtF(pr.insumo.ult_fecha)}</small>` : '<span class="muted">—</span>'}</td>
@@ -1986,6 +2004,8 @@ async function vistaMPs(el) {
   let t;
   $('#q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { q = e.target.value; pintar(); }, 200); };
   $('#f-s').onchange = (e) => { solo = e.target.value; sessionStorage.setItem('mp_solo', solo); pintar(); };
+  if (cats.length < 2) cat = '';
+  if ($('#f-cat')) $('#f-cat').onchange = (e) => { cat = e.target.value; sessionStorage.setItem('mp_cat', cat); pintar(); };
   $('#f-p').onchange = (e) => { dias = Number(e.target.value); sessionStorage.setItem('rec_periodo', dias); pintar(); };
   $('#b-exp').onclick = () => descargarXlsx('materias-primas-shares.xlsx', [['Materias primas', [['Código', 'Materia prima', 'Costo en Shares', 'Insumo unido', 'Última compra (unidad de Shares)', 'Fecha compra', 'Compra vs Shares %', 'Productos que la usan', `Costo Shares hace ${dias} días`],
     ...activas.map(m => { const a = ch.mp.get(m.id), pr = precioRealMp(m.id); return [m.id, m.denominacion, m.costo, pr?.insumo.nombre || '', pr?.precio ?? '', pr?.insumo.ult_fecha || '', pr ? Math.round(varPctR(m.costo, pr.precio) * 100) / 100 : '', nPT(m.id), a?.costo ?? '']; })], [9, 40, 14, 26, 16, 12, 12, 10, 14]]]);
