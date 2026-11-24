@@ -22,6 +22,14 @@ const API = (() => {
   } catch { return String(window.COSTOS_API).replace(/\/$/, ''); }
 })();
 
+// Login único: la sesión viene del portal de Herramientas (Worker acceso-api)
+const PORTAL = 'https://herramientas.luccianos.com.ar';
+const ACCESO_API = 'https://acceso-api.lucciano-viaticos.workers.dev';
+const ACCESO_APP = 'costos';
+// Transición: mientras sea true se puede seguir entrando con la clave vieja de Costos. Al terminar, pasarlo a false.
+const LOGIN_VIEJO = true;
+const esTokenViejo = (t) => /^[a-f0-9]{64}$/i.test(t || '');
+
 const S = { token: null, user: null, vista: null };
 try { S.token = localStorage.getItem('costos_token'); } catch { /* sin storage */ }
 
@@ -433,10 +441,38 @@ function montarInstalar(root = document) { $$('[data-instalar]', root).forEach(x
 // ---------------------------------------------------------------------------
 function guardarToken(t) { S.token = t; try { t ? localStorage.setItem('costos_token', t) : localStorage.removeItem('costos_token'); } catch { } }
 async function salir(llamarApi = true) {
-  if (llamarApi) await api('/api/logout', { method: 'POST' }).catch(() => null);
+  const central = S.token && !esTokenViejo(S.token);
+  if (llamarApi) {
+    if (central) await fetch(ACCESO_API + '/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + S.token } }).catch(() => null);
+    else await api('/api/logout', { method: 'POST' }).catch(() => null);
+  }
   guardarToken(null); S.user = null;
+  if (central && llamarApi) { location.href = PORTAL; return; }
   location.hash = '';
   vistaLogin();
+}
+
+// Llegada desde el portal: si ya tiene sesión entra al instante; si no, el portal le consigue una y lo devuelve
+async function canjearAcceso() {
+  if (location.hash === '#portal') {
+    history.replaceState(null, '', location.pathname + location.search + '#/tablero');
+    if (!S.token) { location.replace(PORTAL + '/#ir=' + ACCESO_APP); return 'redirigiendo'; }
+    return;
+  }
+  const m = location.hash.match(/^#acceso=([\w-]+)$/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search + '#/tablero');
+  try {
+    const res = await fetch(ACCESO_API + '/canjear', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigo: m[1], app: ACCESO_APP }),
+    });
+    const r = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(r.error || 'No se pudo ingresar.');
+    guardarToken(r.token);
+  } catch (e) {
+    setTimeout(() => toast(e.message.includes('fetch') ? 'No se pudo conectar para ingresar. Volvé a entrar desde el portal.' : e.message, true), 400);
+  }
 }
 Object.assign(ICO, {
   bell: svgI('<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>'),
@@ -468,12 +504,15 @@ async function vistaLogin() {
       <div class="pasos"><span>${ICO.doc}Facturas</span><span>${ICO.sparkle}Se leen los renglones</span><span>${ICO.box}Precio por kg</span><span>${ICO.bell}Alertas</span></div></div>
     <div class="login-form"><form id="f-login">
       <h1>${setup ? 'Primer ingreso' : 'Ingresar'}</h1>
-      <p>${setup ? 'Creá el usuario administrador.' : "Usá tu mail de Lucciano's."}</p>
+      <p>${setup ? 'Creá el usuario administrador.' : "Entrá desde el portal de Herramientas, con tu usuario de Lucciano's."}</p>
+      ${setup ? '' : `<a class="btn btn-acento btn-grande" href="${PORTAL}/#ir=${ACCESO_APP}" style="text-decoration:none;justify-content:center">Ir al portal ${ICO.arrow}</a>`}
+      ${setup ? '' : (LOGIN_VIEJO ? '<details class="login-viejo" style="margin-top:22px"><summary style="cursor:pointer;color:var(--muted,#777);font-size:13.5px">Ingresar con la clave anterior de Costos</summary><div style="margin-top:14px">' : '<div hidden>')}
       ${setup ? '<div class="campo"><label for="lg-n">Nombre</label><input id="lg-n" name="nombre" required autocomplete="name"></div>' : ''}
       <div class="campo"><label for="lg-u">Mail</label><input id="lg-u" name="email" type="email" required autocomplete="username"></div>
       <div class="campo"><label for="lg-p">Contraseña</label><input id="lg-p" name="password" type="password" required autocomplete="${setup ? 'new-password' : 'current-password'}" minlength="${setup ? 10 : 1}"></div>
       <div class="campo hidden" id="c-totp"><label for="lg-t">Código de verificación</label><input id="lg-t" name="totp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" class="mono"></div>
       <button class="btn btn-acento btn-grande" type="submit">${setup ? 'Crear y entrar' : 'Entrar'} ${ICO.arrow}</button>
+      ${setup ? '' : (LOGIN_VIEJO ? '</div></details>' : '</div>')}
     </form></div></div>`;
   colorBarra('#A8C686');
   $('#f-login').onsubmit = async (e) => {
@@ -599,6 +638,7 @@ async function router() {
 }
 
 async function iniciar() {
+  if (await canjearAcceso() === 'redirigiendo') return;
   if (!S.token) return vistaLogin();
   try { const r = await api('/api/yo'); S.user = r.usuario; } catch { return vistaLogin(); }
   await router();
@@ -1520,6 +1560,15 @@ async function vistaGuia(el) {
 //  Usuarios, ajustes y auditoría
 // ---------------------------------------------------------------------------
 async function adminUsuarios(el) {
+  const aviso = `<div class="panel panel-pad" style="margin-bottom:14px"><h2 style="margin-bottom:6px">Los usuarios se administran desde el portal</h2>
+    <p class="muted" style="margin:0 0 12px">Ahí se da acceso a Costos y se elige el rol de cada persona (consulta, editor o admin). Vale para todas las herramientas.</p>
+    <a class="btn btn-negro" href="${PORTAL}" style="text-decoration:none">Abrir el portal</a></div>`;
+  if (!LOGIN_VIEJO) { el.innerHTML = aviso; return; }
+  await adminUsuariosViejo(el);
+  el.insertAdjacentHTML('afterbegin', aviso + '<h3 style="margin:0 0 10px">Claves anteriores de Costos (se dejan de usar al terminar la migración)</h3>');
+}
+
+async function adminUsuariosViejo(el) {
   const r = await api('/api/usuarios');
   el.innerHTML = `<div class="acciones" style="margin-bottom:12px"><button class="btn btn-negro" id="b-nu">Nuevo usuario</button></div>
     <table><thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>2FA</th><th>Estado</th><th></th></tr></thead><tbody>
@@ -1606,6 +1655,15 @@ async function adminAuditoria(el) {
 //  Mi cuenta: contraseña y doble factor
 // ---------------------------------------------------------------------------
 async function vistaMiCuenta(el) {
+  if (S.user.central) {
+    el.innerHTML = `<div class="encabezado"><div><h1>Mi cuenta</h1><p>${esc(S.user.email)} · rol ${esc(S.user.rol)}</p></div></div>
+      ${bloqueInstalar()}
+      <div class="panel panel-pad" style="max-width:560px"><h2 style="margin-bottom:12px">Usuario y contraseña</h2>
+        <p class="muted">Usás el mismo usuario en todas las herramientas de Lucciano's. La contraseña y los permisos se manejan desde el portal.</p>
+        <a class="btn btn-negro" href="${PORTAL}" style="text-decoration:none">Ir al portal</a></div>`;
+    montarInstalar(el);
+    return;
+  }
   el.innerHTML = `<div class="encabezado"><div><h1>Mi cuenta</h1><p>${esc(S.user.email)} · rol ${esc(S.user.rol)}</p></div></div>
     ${bloqueInstalar()}
     <div class="panel panel-pad" style="max-width:560px"><h2 style="margin-bottom:12px">Doble factor</h2>
