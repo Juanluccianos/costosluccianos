@@ -454,8 +454,11 @@ async function salir(llamarApi = true) {
 
 // Llegada desde el portal: si ya tiene sesión entra al instante; si no, el portal le consigue una y lo devuelve
 async function canjearAcceso() {
-  if (location.hash === '#portal') {
-    history.replaceState(null, '', location.pathname + location.search + '#/tablero');
+  // #portal o #portal=<ruta>: llega desde Herramientas (con la ruta a abrir, si vino del buscador o de un pendiente)
+  const mPortal = location.hash.match(/^#portal(?:=(.+))?$/);
+  if (mPortal) {
+    const destino = mPortal[1] ? decodeURIComponent(mPortal[1]) : '#/tablero';
+    history.replaceState(null, '', location.pathname + location.search + destino);
     if (!S.token) { location.replace(PORTAL + '/#ir=' + ACCESO_APP); return 'redirigiendo'; }
     return;
   }
@@ -652,6 +655,21 @@ document.addEventListener('keydown', (e) => {
 // ---------------------------------------------------------------------------
 //  Inicio
 // ---------------------------------------------------------------------------
+// Anillo pistacho: qué parte de las materias primas vinculadas tiene en Shares un costo parecido a la última compra
+function anilloShares(sh) {
+  const v = sh.vinculados || 0, mal = sh.desactualizados || 0, ok = Math.max(0, v - mal);
+  const pct = v ? Math.round(ok / v * 100) : 0, r = 40, c = 2 * Math.PI * r;
+  return `<a class="panel panel-pad anillo-shares" href="#/comparar" style="display:flex;align-items:center;gap:20px;text-decoration:none;color:inherit;background:#A8C686;border:0">
+    <svg width="104" height="104" viewBox="0 0 100 100" role="img" aria-label="Costos de Shares al día: ${pct} por ciento">
+      <circle cx="50" cy="50" r="${r}" fill="none" stroke="#dcebc6" stroke-width="12"/>
+      <circle cx="50" cy="50" r="${r}" fill="none" stroke="#1d2f0d" stroke-width="12" stroke-linecap="round" stroke-dasharray="${(pct / 100 * c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 50 50)" style="transition:stroke-dasharray .8s cubic-bezier(.16,1,.3,1)"/>
+      <text x="50" y="56" text-anchor="middle" font-family="Manrope, sans-serif" font-weight="800" font-size="20" fill="#1d2f0d">${pct}%</text>
+    </svg>
+    <div><div style="font:700 17px Manrope,sans-serif;color:#1d2f0d">Shares al día</div>
+      <div style="font-size:14px;color:#2f4a17;margin-top:4px">${ok} de ${v} materias primas tienen en Shares un costo parecido a la última compra${mal ? ` · ${mal} para actualizar` : ''}.</div></div>
+  </a>`;
+}
+
 async function vistaInicio(el) {
   const t = await api('/api/tablero');
   contadores(t);
@@ -673,6 +691,7 @@ async function vistaInicio(el) {
       <a class="kpi" href="#/insumos"><div class="et">Insumos seguidos</div><div class="val">${t.insumos}</div><div class="sub">${t.insumos_con_precio || 0} con precio</div></a>
       <a class="kpi" href="#/facturas"><div class="et">Facturas leídas</div><div class="val">${leidas}</div><div class="sub">${F.revisar ? `${F.revisar} no cierran · ` : ''}${cola ? `${cola} en cola` : 'al día'}</div></a>
     </div>
+    ${t.shares?.vinculados ? anilloShares(t.shares) : ''}
     ${t.shares?.desactualizados ? `<div class="panel"><div class="panel-titulo"><h2>${ICO.balanza} Shares desactualizado</h2><a class="btn btn-ghost btn-chico" href="#/comparar">Ver todos</a></div>
       <p class="small muted" style="margin:0;padding:0 18px 6px">${t.shares.desactualizados} materia${t.shares.desactualizados > 1 ? 's primas' : ' prima'} con la última compra ${t.shares.umbral} % o más lejos del costo que usa Shares. Los productos que las usan están mal costeados.</p>
       <ul class="feed">${t.shares.top.map(x => `<li data-href="#/mp/${x.codigo_shares}" tabindex="0">${cuad(x.nombre)}<div style="min-width:0"><div class="t">${esc(x.nombre)}</div><div class="d">Shares ${$$m(x.costo_shares)} · compra ${$$m(x.precio_real)} (${esc(x.ult_proveedor || '')}, ${fmtF(x.ult_fecha)})</div></div>
