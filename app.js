@@ -582,7 +582,7 @@ function shell(ruta) {
       </nav>
       <div class="me"><a class="av" href="#/cuenta" title="Mi cuenta">${esc(iniciales(S.user.nombre))}</a>
         <a class="who" href="#/cuenta"><b>${esc(S.user.nombre)}</b><small>${esc(rol)}</small></a>
-        <div class="ibtns"><button class="ibtn" id="b-tema" title="Claro / oscuro" aria-label="Cambiar tema">${temaActual() === 'dark' ? ICO.sun : ICO.moon}</button><button class="ibtn" id="b-salir" title="Salir" aria-label="Salir">${ICO.logout}</button></div></div>
+        <div class="ibtns"><button class="ibtn" id="b-tema" title="Claro / oscuro" aria-label="Cambiar tema">${temaActual() === 'dark' ? ICO.sun : ICO.moon}</button><a class="ibtn" href="${PORTAL}" title="Volver al portal" aria-label="Volver al portal">${svgI('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>')}</a></div></div>
     </aside>
     <div style="min-width:0">
       <header class="top"><img class="marca-m" src="logo-negro.png" alt="Lucciano's"><div class="crumbs">${ruta.miga}</div>
@@ -622,7 +622,6 @@ async function router() {
   const r = RUTAS.find(x => x.re.test(h)) || RUTAS[0];
   const m = h.match(r.re) || [];
   $('#app').innerHTML = shell(r);
-  $('#b-salir').onclick = () => salir();
   $('#b-tema').onclick = alternarTema;
   $('#b-actualizar').onclick = actualizar;
   const bg = $('#buscar-global');
