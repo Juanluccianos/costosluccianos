@@ -43,7 +43,7 @@ const PORTAL = 'https://herramientas.luccianos.com.ar';
 const ACCESO_API = 'https://acceso-api.lucciano-viaticos.workers.dev';
 const ACCESO_APP = 'costos';
 // Transición: mientras sea true se puede seguir entrando con la clave vieja de Costos. Al terminar, pasarlo a false.
-const LOGIN_VIEJO = true;
+const LOGIN_VIEJO = false;   // claves viejas apagadas (25/11): solo se entra desde el portal
 const esTokenViejo = (t) => /^[a-f0-9]{64}$/i.test(t || '');
 
 const S = { token: null, user: null, vista: null };
