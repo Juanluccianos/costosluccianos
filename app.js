@@ -1469,7 +1469,7 @@ async function adminSalud(el) {
   const rc0 = s.recetas || {};
   const fila = (ok, t, det, prueba, accion = '') => `<tr><td>${ok ? '<span class="badge b-ok">OK</span>' : '<span class="badge b-critica">Falta</span>'}</td><td><b>${t}</b><div class="small muted">${det}</div></td><td>${accion || (prueba ? `<button class="btn btn-chico" data-probar="${prueba}">Probar</button>` : '')}</td></tr>`;
   el.innerHTML = `<table class="sin-orden tabla-salud"><tbody>
-    ${fila(s.gemini, 'Gemini (lectura de renglones)', `GEMINI_KEY · modelos ${esc(s.gemini_modelos.join(', '))}${s.gemini_saturado ? ` · <span class="txt-neg">Google estuvo saturado a las ${esc(fmtFH(s.gemini_saturado + 'Z'))}: la lectura se reintenta sola cada 10 minutos</span>` : ''}`, 'gemini')}
+    ${fila(s.gemini, 'Lectura de renglones (IA)', `${s.lectura_gateway ? 'Servicio gemini-luccianos · Claude → Gemini pago → respaldo gratuito, con el tope mensual compartido' : `GEMINI_KEY · modelos ${esc(s.gemini_modelos.join(', '))}`}${s.gemini_saturado ? ` · <span class="txt-neg">Lectura en pausa desde las ${esc(fmtFH(s.gemini_saturado + 'Z'))}: se reintenta sola</span>` : ''}`, 'gemini')}
     ${fila(s.facturas_binding && s.costos_secret, 'App de facturas de proveedores', `Service binding FACTURAS ${s.facturas_binding ? 'cargado' : 'falta'} · COSTOS_SECRET ${s.costos_secret ? 'cargado' : 'falta'}`, 'facturas')}
     ${fila(!!s.ultima_sync, 'Sincronización', s.ultima_sync ? `Última: ${fmtFH(s.ultima_sync + 'Z')} · hasta la factura #${esc(s.cursor || 0)}` : 'Todavía no corrió. Corre sola cada 10 minutos (Cron Trigger).')}
     ${fila(true, 'Datos', `${s.insumos} insumo(s) · ${s.vinculos} descripción(es) vinculada(s) · ${s.renglones} renglón(es) leído(s)`)}
@@ -1479,7 +1479,11 @@ async function adminSalud(el) {
         + fila(ok, 'Recetas de Shares', `${pt ? `Productos: ${fmtFH(pt.at)} (${pt.cantidad})` : 'Productos: todavía no'} · ${bs ? `Bases: ${fmtFH(bs.at)} (${bs.cantidad})` : 'Bases: todavía no'} · ${rc.materias_primas || 0} materias primas${rc.costos_distintos ? ` · <b>${rc.costos_distintos} con costos distintos en distintas recetas</b>` : ''}${[pt, bs].filter(x => x?.recibidos != null && x.recibidos !== x.cantidad).map(x => `<br><span class="txt-neg">${x.tipo === 'BASE' ? 'Bases' : 'Productos'}: Shares mandó ${x.recibidos} y se guardaron ${x.cantidad} (sin código ${x.descartados?.sin_id || 0}, repetidos ${x.descartados?.repetidos || 0}, de otro tipo ${x.descartados?.otro_tipo || 0})</span>`).join('')}${er && (!pt || er.at > pt.at) ? `<br><span class="txt-neg">Último error (${fmtFH(er.at)}): ${esc(er.error)}</span>` : ''} · se traen solas a las 6`, null, puede('editor') ? `<button class="btn btn-chico" id="b-rec">${ICO.refresh}Traer ahora</button>` : '');
     })()}
     ${puede('admin') && rc0.shares ? fila(true, 'Control contra Shares', 'Le pregunta a Shares las recetas de varias formas y compara costos, recetas y cantidades con lo que tiene la app. Solo lee: no cambia nada.', null, `<button class="btn btn-chico" id="b-ctrl">${ICO.check}Controlar</button>`) : ''}
-  </tbody></table><p class="small muted">Versión ${esc(s.version)}</p>`;
+  </tbody></table><p class="small muted">Versión ${esc(s.version)}</p>
+  ${s.lectura_gateway ? '<div id="salud-lectura" style="margin-top:18px"><span class="cargando"></span></div>' : ''}`;
+  // Gasto del mes y estado de la lectura paga: el mismo bloque que Facturas, Efectivo y Viáticos
+  const sl = $('#salud-lectura', el);
+  if (sl) api('/api/salud/lectura').then(r => { sl.innerHTML = htmlSaludGemini(r.gemini); }).catch(e => { sl.innerHTML = htmlSaludGemini({ error: e.message }); });
   const bct = $('#b-ctrl', el); if (bct) bct.onclick = () => controlShares();
   const brc = $('#b-rec', el); if (brc) brc.onclick = () => traerRecetas(brc, puede('admin'));
   $$('[data-probar]', el).forEach(b => b.onclick = () => conBoton(b, async () => { const r = await api('/api/probar/' + b.dataset.probar, { method: 'POST' }); toast(r.mensaje); }));
@@ -1560,7 +1564,7 @@ function excelControl(res) {
 // ---------------------------------------------------------------------------
 const PASOS_GUIA_C = [
   ['doc', 'Llegan las facturas', 'Cada 10 minutos la app trae de Facturas de proveedores las facturas de materia prima ya confirmadas (listas o cargadas en Shares).'],
-  ['sparkle', 'Se leen los renglones', 'Gemini lee cada renglón: descripción, cantidad, unidad, precio, bonificación e importe. Todo neto, sin IVA.'],
+  ['sparkle', 'Se leen los renglones', 'La IA lee cada renglón: descripción, cantidad, unidad, precio, bonificación e importe. Todo neto, sin IVA.'],
   ['link', 'Vinculás una vez', 'La primera vez que aparece una descripción de un proveedor decís qué insumo es y cuánto trae. Después se reconoce sola.'],
   ['chart', 'Precio y alertas', 'Cada compra queda como $ por kg, litro o unidad. Si un proveedor sube, se paga más que el promedio u otro vende más barato, hay alerta.'],
   ['balanza', 'Contra Shares', 'Una vez por día se traen las recetas de Shares. Cada insumo unido compara el costo que usa Shares con lo que realmente se pagó.'],
@@ -2567,3 +2571,84 @@ async function vistaSimulador(el) {
   setInterval(revisar, 5 * 60e3);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') revisar(); });
 })();
+
+// ---------------------------------------------------------------------------
+//  Estado de la lectura automática (worker gemini-luccianos) — mismo bloque en las tres apps
+//  g = respuesta de /salud de gemini-luccianos para esta app; extras = [[título, valor], ...]
+// ---------------------------------------------------------------------------
+const SG_ICO = {
+  ok: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
+  pausa: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  mal: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>',
+};
+const SG_ESTADOS = {
+  disponible: ['ok', 'Disponible'], cuota_diaria_agotada: ['mal', 'Cuota diaria agotada'], sin_cuota_gratuita: ['pausa', 'Sin cuota gratuita'],
+  en_pausa_por_minuto: ['pausa', 'En pausa (cuota por minuto)'], enfermo: ['pausa', 'En pausa por fallas'], no_disponible: ['mal', 'Ya no existe'],
+  sin_credito: ['mal', 'Sin crédito o facturación'],
+};
+const SG_CATEGORIAS = {
+  cuota_minuto: 'Cuota por minuto', cuota_dia: 'Cuota diaria agotada', sin_acceso_gratis: 'Sin cuota gratuita', sobrecarga: 'Saturado',
+  error_servidor: 'Error del servicio (500)', sin_credito: 'Sin crédito o facturación', tope_mensual: 'Tope mensual alcanzado', config_temperatura: 'Configuración no aceptada', timeout: 'No respondió a tiempo', red: 'Sin conexión', sin_tiempo: 'Se acabó el tiempo',
+  modelo_inexistente: 'Modelo inexistente', sin_modelos: 'Sin modelos disponibles', archivo_invalido: 'Archivo ilegible', archivo_grande: 'Archivo muy grande',
+  bloqueo_seguridad: 'Bloqueo de seguridad', respuesta_cortada: 'Respuesta cortada', json_invalido: 'JSON inválido', respuesta_invalida: 'Respuesta inválida',
+  respuesta_vacia: 'Respuesta vacía', clave_invalida: 'Clave inválida', region_no_soportada: 'Región no habilitada', solicitud_invalida: 'Solicitud inválida',
+  config_thinking: 'Configuración no aceptada', config_esquema: 'Configuración no aceptada',
+};
+function htmlSaludGemini(g, extras = []) {
+  const e = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fecha = (s) => { const d = new Date(String(s || '').replace(' ', 'T') + (/Z|[+-]\d\d:?\d\d$/.test(String(s)) ? '' : 'Z')); return isNaN(d) ? e(s) : d.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }); };
+  const tono = { ok: 'color:#2e7d32;background:rgba(46,125,50,.10)', pausa: 'color:#9a6a12;background:rgba(179,121,31,.12)', mal: 'color:#b3261e;background:rgba(179,38,30,.10)' };
+  const chip = (t, txt) => `<span style="display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;${tono[t]}">${SG_ICO[t]}${e(txt)}</span>`;
+  const caja = 'border:1px solid rgba(127,127,127,.22);border-radius:12px;padding:14px 16px;margin:0 0 12px';
+  const th = 'text-align:left;font-size:12px;font-weight:600;opacity:.65;padding:6px 8px;border-bottom:1px solid rgba(127,127,127,.22)';
+  const td = 'padding:7px 8px;border-bottom:1px solid rgba(127,127,127,.12);vertical-align:top';
+  if (!g || g.error) return `<div style="${caja}"><b>Lectura automática</b><p style="margin:6px 0 0">${chip('mal', 'Sin conexión')} ${e(g?.error || 'El servicio de lectura no respondió.')}</p></div>`;
+  const filas = (lista) => (lista || []).map(m => {
+    const [t, txt] = SG_ESTADOS[m.estado] || ['pausa', m.estado];
+    return `<tr><td style="${td};font-family:ui-monospace,monospace;font-size:12.5px">${e(m.modelo)}</td><td style="${td}">${e(m.familia)}</td>
+      <td style="${td}">${chip(t, txt)}${m.hasta_ar ? `<div style="font-size:12px;opacity:.7;margin-top:3px">hasta ${e(m.hasta_ar)}</div>` : ''}${m.ultimo_error && m.estado === 'enfermo' ? `<div style="font-size:12px;opacity:.7">${e(SG_CATEGORIAS[m.ultimo_error] || m.ultimo_error)}</div>` : ''}</td>
+      <td style="${td};text-align:right;font-variant-numeric:tabular-nums">${m.llamadas_hoy}${m.limite_dia ? ` <span style="opacity:.6">/ ${m.limite_dia}</span>` : ''}</td>
+      <td style="${td};text-align:right;font-variant-numeric:tabular-nums">${m.errores_hoy}</td></tr>`;
+  }).join('');
+  const disponibles = (g.cadena_rapido || []).filter(m => m.estado === 'disponible').length;
+  // En modo pago la app no necesita clave gratuita propia (Costos no tiene): solo cuenta en el modo gratuito
+  const estadoGeneral = !g.clave_cargada && !g.pago?.activo ? chip('mal', 'Falta la clave') : disponibles ? chip('ok', `${disponibles} de ${(g.cadena_rapido || []).length} modelos disponibles`) : chip('mal', 'Ningún modelo disponible ahora');
+  const dato = (t, v) => `<div style="min-width:120px"><div style="font-size:12px;opacity:.65">${e(t)}</div><div style="font-size:18px;font-weight:700;font-variant-numeric:tabular-nums">${v}</div></div>`;
+  const usd = (n) => n == null ? '—' : 'US$ ' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const p = g.pago || {};
+  const nombresApp = { efectivo: 'Facturas efectivo', viaticos: 'Viáticos', facturas: 'Facturas de proveedores' };
+  const bloqueGasto = !p.activo ? '' : (() => {
+    const pct = Math.min(100, Number(p.porcentaje) || 0);
+    const t = pct >= 100 ? 'mal' : pct >= 80 ? 'pausa' : 'ok';
+    const txt = pct >= 100 ? 'Tope alcanzado: hasta el día 1 se lee con el respaldo gratuito y todo va a revisión' : pct >= 80 ? 'Cerca del tope' : 'Dentro del tope';
+    const color = { ok: '#2e7d32', pausa: '#b3791f', mal: '#b3261e' }[t];
+    return `<div style="${caja}">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:space-between"><b style="font-size:15px">Gasto del mes en lectura paga</b>${chip(t, txt)}</div>
+      <div style="height:8px;border-radius:99px;background:rgba(127,127,127,.18);margin:12px 0 4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${color}"></div></div>
+      <div style="display:flex;flex-wrap:wrap;gap:22px;margin-top:10px">
+        ${dato('Gastado este mes (todas las apps)', usd(p.gastado_usd))}${dato('Tope mensual', usd(p.tope_usd))}${dato('Usado', (Number(p.porcentaje) || 0).toLocaleString('es-AR') + ' %')}
+        ${dato('Proyección a fin de mes', usd(p.proyeccion_usd))}${dato('Costo promedio por lectura', p.costo_promedio_usd == null ? '—' : 'US$ ' + Number(p.costo_promedio_usd).toLocaleString('es-AR', { maximumFractionDigits: 4 }))}${dato('Esta app', usd(p.gasto_app_usd))}
+      </div>
+      ${(p.por_app || []).length ? `<p style="font-size:12.5px;opacity:.75;margin:10px 0 0">Por app: ${p.por_app.map(x => `${e(nombresApp[x.app] || x.app)} ${usd(x.usd)}`).join(' · ')}${(p.por_modelo || []).length ? ` — Por modelo: ${p.por_modelo.map(x => `${e(x.modelo)} ${usd(x.usd)}`).join(' · ')}` : ''}</p>` : ''}
+      <p style="font-size:12px;opacity:.65;margin:8px 0 0">Mes calendario (se reinicia el día 1). Precios cargados al ${p.precios_al ? e(String(p.precios_al).split('-').reverse().join('/')) : '—'}: si Google o Anthropic los cambian, se actualizan en la tabla de precios. ${p.claude ? '' : 'Falta la clave de Claude. '}${p.gemini ? '' : 'Falta la clave paga de Gemini.'}</p>
+    </div>`;
+  })();
+  return `${bloqueGasto}<div style="${caja}">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:space-between"><b style="font-size:15px">Lectura automática${p.activo ? ' (pago)' : ' (Gemini)'}</b>${estadoGeneral}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:22px;margin-top:12px">
+        ${dato('Llamadas a la IA hoy', g.hoy?.llamadas ?? 0)}${dato('Errores hoy', g.hoy?.errores ?? 0)}${dato('Tasa de error 24 h', (g.tasa_error_24h ?? 0).toLocaleString('es-AR') + ' %')}
+        ${dato('Tokens hoy', Number(g.hoy?.tokens ?? 0).toLocaleString('es-AR'))}${extras.map(([t, v]) => dato(t, e(v))).join('')}
+      </div>
+      <p style="font-size:12.5px;opacity:.7;margin:10px 0 0">${p.activo ? 'Orden: Claude, después Gemini pago y, si los dos fallan, el respaldo gratuito de Cloudflare.' : `La cuota gratuita se renueva todos los días a las ${e(g.reinicio_cuota_ar || '—')} (hora argentina). Lista de modelos actualizada ${g.modelos_at ? fecha(g.modelos_at).replace(/\.$/, '') : '—'}.`}${g.version ? ` Servicio v${e(g.version)}.` : ''}</p>
+      ${g.modelos_error ? `<p style="font-size:13px;margin:8px 0 0">${chip('mal', 'Aviso')} ${e(g.modelos_error)}</p>` : ''}
+    </div>
+    <div style="${caja}"><b>Modelos en uso, en el orden en que se prueban</b>
+      <div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:13.5px"><thead><tr><th style="${th}">Modelo</th><th style="${th}">Familia</th><th style="${th}">Estado</th><th style="${th};text-align:right">Llamadas hoy</th><th style="${th};text-align:right">Errores hoy</th></tr></thead>
+      <tbody>${filas(g.cadena_rapido) || `<tr><td colspan="5" style="${td}">Sin modelos.</td></tr>`}</tbody></table></div>
+      <p style="font-size:12px;opacity:.65;margin:8px 0 0">Cada reintento cuenta como una llamada.${(g.cadena_rapido || []).some(m => m.limite_dia) ? ' El número después de la barra es el límite diario de Google: lo informa recién cuando se alcanza por primera vez.' : ''}</p></div>
+    <div style="${caja}"><b>Últimos errores</b>
+      ${(g.ultimos_errores || []).length ? `<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th style="${th}">Fecha</th><th style="${th}">Archivo</th><th style="${th}">Modelo</th><th style="${th}">Qué pasó</th></tr></thead><tbody>
+        ${g.ultimos_errores.map(x => `<tr><td style="${td};white-space:nowrap">${fecha(x.fecha)}</td><td style="${td}">${e(x.archivo || '—')}</td><td style="${td};font-family:ui-monospace,monospace;font-size:12px;white-space:nowrap">${e(x.modelo || '—')}${x.http ? `<div style="opacity:.6">HTTP ${x.http}</div>` : ''}</td>
+          <td style="${td}"><b>${e(SG_CATEGORIAS[x.categoria] || x.categoria)}</b><div style="opacity:.8">${e(x.mensaje || '')}</div></td></tr>`).join('')}
+      </tbody></table></div>` : '<p style="margin:6px 0 0;opacity:.7">Sin errores registrados.</p>'}</div>`;
+}
