@@ -1425,9 +1425,9 @@ const CFG_UI = [
 
 async function vistaAdmin(el) {
   if (!puede('admin')) throw new Error('Necesitás rol admin.');
-  el.innerHTML = `<div class="encabezado"><div><h1>Configuración</h1><p>Conexiones, usuarios, umbrales de alertas y auditoría.</p></div></div>
-    <div class="panel"><div class="tabs" id="atabs">${['Salud', 'Usuarios', 'Ajustes', 'Auditoría'].map((t, i) => `<button class="${i ? '' : 'activo'}" data-t="${i}">${t}</button>`).join('')}</div><div id="acont" class="panel-pad"></div></div>`;
-  const tabs = [adminSalud, adminUsuarios, async (c) => { await adminConfig(c); S.cfg = null; }, adminAuditoria];
+  el.innerHTML = `<div class="encabezado"><div><h1>Configuración</h1><p>Conexiones, umbrales de alertas y auditoría. Los usuarios se manejan en el portal de Herramientas.</p></div></div>
+    <div class="panel"><div class="tabs" id="atabs">${['Salud', 'Ajustes', 'Auditoría'].map((t, i) => `<button class="${i ? '' : 'activo'}" data-t="${i}">${t}</button>`).join('')}</div><div id="acont" class="panel-pad"></div></div>`;
+  const tabs = [adminSalud, async (c) => { await adminConfig(c); S.cfg = null; }, adminAuditoria];
   const ir = async (i) => {
     $$('#atabs button').forEach(b => b.classList.toggle('activo', b.dataset.t === String(i)));
     $('#acont').innerHTML = '<span class="cargando"></span>';
